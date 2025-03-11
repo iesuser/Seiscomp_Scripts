@@ -14,7 +14,7 @@ script_path = os.path.dirname(os.path.abspath(__file__))
 
 # Execute scxmldump command to retrieve earthquake data
 
-command = f'seiscomp exec scxmldump -PMfmp -o /home/sysop/seiscomp/plot_eq2google_map/google_temp.xml -E {sys.argv[2]} -d {server_ip}'
+command = f'seiscomp exec scxmldump -PMfmp -o /home/sysop/Code/Seiscomp_Scripts/plot_eq2google_map/google_temp.xml -E {sys.argv[2]} -d {server_ip}'
 
 try:
     subprocess.run(command, check=True, shell=True )

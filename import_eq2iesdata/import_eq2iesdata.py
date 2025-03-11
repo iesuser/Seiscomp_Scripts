@@ -66,7 +66,7 @@ if not os.path.isdir(temp_dir_path):
 	os.mkdir(temp_dir_path)
 
 
-xml_path = temp_dir_path + "/log.xml"
+xml_path = temp_dir_path + "/eq_log.xml"
 html_file_path = temp_dir_path + "/redirectPostEq.html"
 
 
