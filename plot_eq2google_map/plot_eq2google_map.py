@@ -11,10 +11,11 @@ server_ip = 'localhost'
 zoom_level = 0
 script_path = os.path.dirname(os.path.abspath(__file__))
 
+xml_path = os.path.join(script_path, 'google_temp.xml')
 
 # Execute scxmldump command to retrieve earthquake data
 
-command = f'seiscomp exec scxmldump -PMfmp -o /home/sysop/Code/Seiscomp_Scripts/plot_eq2google_map/google_temp.xml -E {sys.argv[2]} -d {server_ip}'
+command = f'seiscomp exec scxmldump -PMfmp -o {xml_path} -E {sys.argv[2]} -d {server_ip}'
 
 try:
     subprocess.run(command, check=True, shell=True )
@@ -22,7 +23,6 @@ except subprocess.CalledProcessError as e:
     print("Error:", e)
     sys.exit(1)
 
-xml_path = os.path.join(script_path, 'google_temp.xml')
 
 # Read XML file and remove default namespace
 with open(xml_path, "r") as file:
