@@ -7,8 +7,6 @@ import subprocess
 import shutil  # Import the shutil module
 
 server_ip = 'localhost'
-# Define the desired zoom level (adjust as needed)
-zoom_level = 0
 script_path = os.path.dirname(os.path.abspath(__file__))
 event_id = sys.argv[2]
 
@@ -26,7 +24,7 @@ def xml_dump(xml_path, event_id, server_ip):
 if __name__ == '__main__':
     """
         გვჭირდება სკრიპტის სამი ნაწილი
-        1) XML ფაილის დაგენერირება.
+        1) XML ფაილის დაგენერირება სეისკომპიდან.
         2) XML ფაილის სწორად გაპარსვა და საჭირო ინფორმაციის ამოღება
         3) XML ფაილიდან ამოღებული ინფორმაციის გადაცემა PHP ფაილისთვის
     """
@@ -39,4 +37,5 @@ if __name__ == '__main__':
     xml_path = temp_dir_path + "/eq_log.xml"
     html_file_path = temp_dir_path + "/redirectPostEq.html"
 
+    # 1) XML ფაილის დაგენერირება სეისკომპიდან scxmldump-ის გამოყენებით .
     xml_dump(xml_path, event_id, server_ip)

@@ -7,8 +7,6 @@ import subprocess
 import shutil  # Import the shutil module
 
 server_ip = 'localhost'
-# Define the desired zoom level (adjust as needed)
-zoom_level = 0
 script_path = os.path.dirname(os.path.abspath(__file__))
 
 xml_path = os.path.join(script_path, 'google_temp.xml')
