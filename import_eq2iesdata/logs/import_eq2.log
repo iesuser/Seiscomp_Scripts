@@ -1,0 +1,8 @@
+2025-03-14 13:29:07,178 - DEBUG - dagenerirda
+2025-03-14 13:32:07,750 - DEBUG - dagenerirda
+2025-03-14 14:03:59,948 - DEBUG - soft variable - LocSAT(Seiscomp)
+2025-03-14 14:03:59,948 - DEBUG - <generete_input - name: soft; value: LocSAT(Seiscomp)>
+2025-03-14 14:04:51,554 - DEBUG - soft variable - LocSAT(Seiscomp)
+2025-03-14 14:04:51,554 - DEBUG - <generete_input - name: soft; value: LocSAT(Seiscomp)>
+2025-03-14 14:04:51,554 - DEBUG - <smart_generete_input - name: EQ_time; value: 14-MAR-2025_00:05:08.334>
+2025-03-14 14:04:51,554 - DEBUG - <smart_generete_input - name: EQ_rms; value: 1.157>
