@@ -13,7 +13,7 @@ xml_path = os.path.join(script_path, 'google_temp.xml')
 
 # Execute scxmldump command to retrieve earthquake data
 
-command = f'seiscomp exec scxmldump -PMfmp -o {xml_path} -E {sys.argv[2]} -d {server_ip}'
+command = f'seiscomp exec scxmldump -fap -o {xml_path} -E {sys.argv[2]} -d {server_ip}'
 
 try:
     subprocess.run(command, check=True, shell=True )
