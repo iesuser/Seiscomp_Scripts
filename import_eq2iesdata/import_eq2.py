@@ -26,9 +26,14 @@ if not os.path.isdir(LOGS_DIR_PATH):
 XML_PATH = TEMP_DIR_PATH + "/eq_log.xml"
 HTML_FILE_PATH = TEMP_DIR_PATH + "/redirectPostEq.html"
 
+# 4 ასევე მანძილის გრადუსებიდან კილომეტრებში გადასაყვანად ვიყენებთ 111.19492664455873 გამრავლებას რამდენად სწორია ?? 
+KILOMETER_DEVIDED_DEGREE_RATIO = 111.19492664455873
+
 SOFTWARE_NAMES = {'LOCSAT':'LocSAT(Seiscomp)'}
+WAVE_TYPES = {'P':'Px'}
 
 FORM_LIST = []
+STATIONS = {}
 
 # Set up logging for the scheduler
 LOG_FILENAME = f'{LOGS_DIR_PATH}/import_eq2.log'
@@ -88,6 +93,69 @@ def smart_generete_input(name, element,first_child, second_child, round_number =
             value = convert_seiscomp_time_to_shm_time(value)
 
         generete_input(name, value, func_name='smart_generete_input')
+
+# ვავსებთ station ლექსიკონს იმ მიზნით რომ პიკები დაჯგუფდეს სადგურების მიხედვით
+def picked_stations():
+    # სადგურების წაკითხვა და input-ების გენერაცია
+    arrivals = origin_element.findall('arrival')
+
+    for arrival in arrivals:
+        timeUsed = arrival.find('timeUsed').text
+        if timeUsed == 'true':
+            pick_id = arrival.find('pickID').text
+            
+            if pick_id.startswith('Pick'):
+                manual_picked = True
+                pick_element = eventParameters_element.find(f"*[@publicID='{pick_id}']")
+                #სადგურის კოდი
+            else:
+                manual_picked = False
+                pick_element = eventParameters_element.find(f".//amplitude[pickID='{pick_id}']")
+
+            if pick_element is None:
+                logging.warning(f'<picked_stations - pick_id: {pick_id} არ არის მონაცემი>')
+                continue
+
+            station_code = pick_element.find('waveformID').attrib['stationCode']
+
+            if station_code not in STATIONS:
+                STATIONS[station_code] = {}
+
+            STATIONS[station_code]['network'] = pick_element.find('waveformID').attrib['networkCode']
+            STATIONS[station_code]['channel'] = pick_element.find('waveformID').attrib['channelCode']
+
+            if 'arrivals' not in STATIONS[station_code]:
+                STATIONS[station_code]['arrivals'] = {}
+
+            #წავიკითხოთ ტალღის სახელი
+            phase = arrival.find('phase').text
+
+            for key, value in WAVE_TYPES.items():
+                if key.lower() == phase.lower():
+                    phase = value
+                    
+            STATIONS[station_code]['azimuth'] = round(float(arrival.find('azimuth').text), 3)
+            #+სადგურებიდან მანძილი გადადის გრადუსიდან კილომეტრში და ისე ხდება მნიშვნელობის შენახვა
+            STATIONS[station_code]['distance'] = round(float(arrival.find('distance').text) * KILOMETER_DEVIDED_DEGREE_RATIO, 3)
+            STATIONS[station_code]['arrivals'][phase] = {}
+
+            #გასარკვევია როგორ გადავა iesdata-ზე 
+            if arrival.find('timeResidual') is not None:
+                STATIONS[station_code]['arrivals'][phase]['timeResidual'] = arrival.find('timeResidual').text
+                if manual_picked:
+                    STATIONS[station_code]['arrivals'][phase]['time'] = convert_seiscomp_time_to_shm_time(pick_element.find('time').find('value').text)
+                else:
+                    STATIONS[station_code]['arrivals'][phase]['time'] = ''
+            if arrival.find('weight') is not None :
+                STATIONS[station_code]['arrivals'][phase]['weight'] = arrival.find('weight').text
+                if int(arrival.find('weight').text) > 0 :
+                    STATIONS[station_code]['arrivals'][phase]['used_for_calculation'] = "Yes"
+                else:
+                    STATIONS[station_code]['arrivals'][phase]['used_for_calculation'] = "No"
+
+        else:
+            continue
+
 
 if __name__ == '__main__':
     """
@@ -167,7 +235,12 @@ if __name__ == '__main__':
     # else:
     # 	print('ar aris')
 
-    print(FORM_LIST)
+    
+    picked_stations()
+    print(STATIONS)
+
+
+
 
 
 
