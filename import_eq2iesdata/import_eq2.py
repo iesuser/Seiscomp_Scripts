@@ -208,16 +208,20 @@ def picked_stations():
             #გასარკვევია როგორ გადავა iesdata-ზე 
             if arrival.find('timeResidual') is not None:
                 STATIONS[station_code]['arrivals'][phase]['timeResidual'] = arrival.find('timeResidual').text
-                if manual_picked:
-                    STATIONS[station_code]['arrivals'][phase]['time'] = convert_seiscomp_time_to_shm_time(pick_element.find('time').find('value').text)
-                else:
-                    STATIONS[station_code]['arrivals'][phase]['time'] = ''
+
+            if manual_picked:
+                STATIONS[station_code]['arrivals'][phase]['time'] = convert_seiscomp_time_to_shm_time(pick_element.find('time').find('value').text)
+            else:
+                STATIONS[station_code]['arrivals'][phase]['time'] = ''
+                
             if arrival.find('weight') is not None :
                 STATIONS[station_code]['arrivals'][phase]['weight'] = arrival.find('weight').text
                 if int(arrival.find('weight').text) > 0 :
                     STATIONS[station_code]['arrivals'][phase]['used_for_calculation'] = "Yes"
                 else:
                     STATIONS[station_code]['arrivals'][phase]['used_for_calculation'] = "No"
+            else:
+                STATIONS[station_code]['arrivals'][phase]['weight'] = ''
 
         else:
             continue
@@ -404,10 +408,11 @@ if __name__ == '__main__':
 
     
     picked_stations()
+    print(STATIONS)
     calculated_magnitudes()
     generate_magnitudes_input()
     generate_stations_magnitudes()
-    print(STATIONS)
+    
 
     html_file = open(HTML_FILE_PATH, "w")
     html_file.write(generate_html())
