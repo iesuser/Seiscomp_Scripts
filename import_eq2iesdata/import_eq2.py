@@ -4,7 +4,7 @@ import sys
 import re
 import xml.etree.ElementTree as ET
 import subprocess
-import shutil  # Import the shutil module
+import time
 
 import logging
 from logging.handlers import RotatingFileHandler
@@ -25,6 +25,7 @@ if not os.path.isdir(LOGS_DIR_PATH):
 
 XML_PATH = TEMP_DIR_PATH + "/eq_log.xml"
 HTML_FILE_PATH = TEMP_DIR_PATH + "/redirectPostEq.html"
+BROWSER = "firefox"
 
 # 4 ასევე მანძილის გრადუსებიდან კილომეტრებში გადასაყვანად ვიყენებთ 111.19492664455873 გამრავლებას რამდენად სწორია ?? 
 KILOMETER_DEVIDED_DEGREE_RATIO = 111.19492664455873
@@ -51,7 +52,6 @@ rotating_handler.setFormatter(formatter)
 logger = logging.getLogger()
 logger.setLevel(logging.DEBUG)
 logger.addHandler(rotating_handler)
-
 
 def xml_dump(xml_path, event_id, server_ip):
     # seiscomp exec scxmldump -APMfmp -o /home/sysop/Code/Seiscomp_Scripts/import_eq2iesdata/temp/eq_log.xml -E grg2025fary -d localhost
@@ -140,6 +140,25 @@ def smart_generate_input(name, element,first_child, second_child, round_number =
             value = convert_seiscomp_time_to_shm_time(value)
 
         generate_input(name, value, func_name='smart_generate_input')
+
+# ფუნქცია აგენერირებს html გვერდს მიწოდებული form(ფორმის) მიხედვით
+def generate_html():
+    form = f"<form>\n" + "\n".join(FORM_LIST) + "\n</form>"
+    return f"""<!DOCTYPE html PUBLIC '-//W3C//DTD XHTML 1.0 Transitional//EN' 'http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd'>
+<html xmlns='http://www.w3.org/1999/xhtml'>
+<head>
+<meta http-equiv='Content-Type' content='text/html; charset=utf-8' />
+<title>data input</title>
+</head>
+<body>
+<form name='postEqForm' action='https://10.0.0.237/admin/eq/getPostEq.php' method='post' style='display:none'>
+{form}
+</form>
+<script>
+        document.postEqForm.submit();
+</script>
+</body>
+</html> """
 
 # ვავსებთ station ლექსიკონს იმ მიზნით რომ პიკები დაჯგუფდეს სადგურების მიხედვით
 def picked_stations():
@@ -388,7 +407,14 @@ if __name__ == '__main__':
     calculated_magnitudes()
     generate_magnitudes_input()
     generate_stations_magnitudes()
-
     print(STATIONS)
 
-    
+    html_file = open(HTML_FILE_PATH, "w")
+    html_file.write(generate_html())
+    html_file.close()
+    os.system(BROWSER + " " + HTML_FILE_PATH)
+    time.sleep(2)
+
+    # if os.path.isfile(HTML_FILE_PATH):
+    #     os.remove(HTML_FILE_PATH)
+        
