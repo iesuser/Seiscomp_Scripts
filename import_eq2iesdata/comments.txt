@@ -1,0 +1,4 @@
+magnitude_types = {'MLv':'mlv', 'MLh':'mlh', 'mb':'mb', 'M':'ml' }
+MAGNITUDE_TYPES = {'MLv':'mlv', 'MLh':'mlh', 'mb':'mb', 'ML':'ml', 'M':'M' }
+
+რომელი მაგნიტუდა როგორ გადადის iesdata -ზე
