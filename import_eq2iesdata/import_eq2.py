@@ -89,6 +89,41 @@ def convert_magnitude_name(magnitude):
     logging.critical(f'{magnitude}, მაგნიტუდის ტიპი {magnitude} არ არსებობს iesdata.iliauni.edu.ge-ზე')
     return None
 
+def get_eq_min_max_value(magnitude_type):
+	mag_min_value = mag_max_value = None
+	magnitude_values = []
+	for key, station in STATIONS.items():
+		if 'magnitudes' in station and magnitude_type in station['magnitudes']:
+			for mag_type, mag_value in station['magnitudes'][magnitude_type].items():
+				magnitude_values.append(float(mag_value))
+	if magnitude_values:
+		mag_min_value = min(magnitude_values)
+		mag_max_value = max(magnitude_values)
+
+	return mag_min_value, mag_max_value
+
+# stations ლექსიკონიდან station_code სადგურისთვის პპოულობს ისეთ ტალღებს რომლებმაც დათვლაში მიიღეს მონაწილეობა
+# და აბრუნებს დროის გადახრას (timeResidual) p და s ტიპის ტალღებისთვის
+def get_wave_time_residuals(station_code):
+	p_wave_time_residual = None
+	s_wave_time_residual = None
+
+	for wave_type in STATIONS[station_code]['arrivals']:
+		if wave_type[:1].lower() == 'p' and int(STATIONS[station_code]['arrivals'][wave_type]['weight']) > 0 \
+		and 'timeResidual' in STATIONS[station_code]['arrivals'][wave_type].keys():
+			p_wave_time_residual = STATIONS[station_code]['arrivals'][wave_type]['timeResidual']
+		if wave_type[:1].lower() == 's' and int(STATIONS[station_code]['arrivals'][wave_type]['weight']) > 0 \
+		and 'timeResidual' in STATIONS[station_code]['arrivals'][wave_type].keys():	
+			s_wave_time_residual = STATIONS[station_code]['arrivals'][wave_type]['timeResidual']
+
+	if p_wave_time_residual is not None:
+		p_wave_time_residual = round(float(p_wave_time_residual), 4)
+
+	if s_wave_time_residual is not None:
+		s_wave_time_residual = round(float(s_wave_time_residual), 4)
+
+	return p_wave_time_residual, s_wave_time_residual
+
 # ფუნქცია აგენერირებს input-ებს მიწოდებული name(სახელი) და value(მნიშვნელობა) მნიშვნელობებით
 def generate_input(name, value, func_name='generate_input'):
     FORM_LIST.append("<input name='" + str(name) + "' type='text' value='" + str(value) + "' />")
@@ -198,6 +233,78 @@ def calculated_magnitudes():
                 STATIONS[station_code]['magnitudes'][magnitude_type]['residual'] = stationMagnitudeContribution.find('residual').text
             STATIONS[station_code]['magnitudes'][magnitude_type]['amplitude'] = station_amplitude.find('amplitude').find('value').text
 
+def generate_magnitudes_input():
+    # მიწისძვრის მაგნიტუდების წაკითხვა და input-ების დაგენერირება
+    # მიწისძვრის მაგნიტუდების მინიმალური და მაქსიმალური მნიშვნელობების წასაკითხათ აუცილებელია
+    # stations სადგურების ლექსიკონი იყოს შევსებული, ამიტომ ვაგენერირებთ stations ლექსიკონის შევსების მერე
+    magnitudes =  origin_element.findall('magnitude')
+    generate_input("EQ_magLength", len(magnitudes))
+    magnitude_index = 0
+    for magnitude in magnitudes:
+        magnitude_type = convert_magnitude_name(magnitude.find('type').text)
+        generate_input("EQ_mag" + str(magnitude_index) + "_name", magnitude_type)
+        generate_input("EQ_mag" + str(magnitude_index) + "_value", round(float(magnitude.find('magnitude').find('value').text), 3))
+        magnitude_uncertainty = round(float(magnitude.find('magnitude').find('uncertainty').text), 3) if magnitude.find('magnitude').find('uncertainty') is not None else ""
+        generate_input("EQ_mag" + str(magnitude_index) + "_uncertainty", magnitude_uncertainty )
+        generate_input("EQ_mag" + str(magnitude_index) + "_number", magnitude.find('stationCount').text)
+        mag_min_value, mag_max_value = get_eq_min_max_value(magnitude_type)
+        if mag_min_value is not None:
+            generate_input("EQ_mag" + str(magnitude_index) + "_min", mag_min_value)
+        if mag_max_value is not None:
+            generate_input("EQ_mag" + str(magnitude_index) + "_max", mag_max_value)
+        magnitude_index += 1
+
+def generate_stations_magnitudes():
+    # სადგურის მაგნიტუდების input-ების დაგენერირება
+    station_index = 0
+    for station_code in STATIONS:
+        st = 'ST' + str(station_index) + '_'
+        generate_input(st + "name", station_code)
+        generate_input(st + "azimuth", STATIONS[station_code]['azimuth'])
+        generate_input(st + "distance", STATIONS[station_code]['distance'])
+
+        p_wave_time_residual,s_wave_time_residual = get_wave_time_residuals(station_code)
+        if p_wave_time_residual is not None:
+            generate_input(st + "residual_origin_time_p", p_wave_time_residual)
+        if s_wave_time_residual is not None:
+            generate_input(st + "residual_origin_time_s", s_wave_time_residual)	
+        if p_wave_time_residual is not None or s_wave_time_residual is not None:
+            generate_input(st + "used_for_calculation", 'Yes')
+        else:
+            generate_input(st + "used_for_calculation", 'No')
+        # print(STATIONS[station_code]['magnitudes'])
+        mag_index = 0
+        #+ შევამოწმოთ სადგურის მაგნიტუდების შესახებ ინფორაცია გვაქვს თუ არადა შემდეგ გავიაროთ ციკლი ინფორმაციის წასაკითხად
+        if 'magnitudes' in STATIONS[station_code]:
+            for magnitude_type in STATIONS[station_code]['magnitudes']:
+                stm = st + "mag" + str(mag_index) + "_"
+                generate_input(stm + "name", convert_magnitude_name(magnitude_type))
+                generate_input(stm + "value", STATIONS[station_code]['magnitudes'][magnitude_type]['value'])
+                # თუ სადგურის მაგნიტუდების residual-ები არსებოს მაშინ დააგენერიროს input-ები
+                if 'residual' in STATIONS[station_code]['magnitudes'][magnitude_type]:
+                    generate_input(stm + "residual", STATIONS[station_code]['magnitudes'][magnitude_type]['residual'])
+                if 'amplitude' in STATIONS[station_code]['magnitudes'][magnitude_type]:
+                    print('yes')	
+                mag_index += 1 
+        #+ input-ის გენრაცია მაშინ როცა magnitude-ს ლექსიკონი არსებობს 
+        if 'magnitudes' in 	STATIONS[station_code]:
+            generate_input(st + "magLength" , len(STATIONS[station_code]['magnitudes']))
+            
+
+        #სადგურის ტალღების inpute-ების დაგენერირება 		
+        arrival_index = 0
+        for phase_name in STATIONS[station_code]["arrivals"]:
+            stw = st + 'wave' + str(arrival_index) + '_'
+            generate_input(stw + 'name', phase_name)
+            generate_input(stw + 'time', STATIONS[station_code]["arrivals"][phase_name]['time'])
+            generate_input(stw + 'weight', STATIONS[station_code]["arrivals"][phase_name]['weight'])
+            generate_input(stw + 'used_for_calculation', STATIONS[station_code]["arrivals"][phase_name]['used_for_calculation'])
+            arrival_index += 1
+
+        generate_input(st + 'waveLength', len(STATIONS[station_code]["arrivals"]))
+        station_index += 1
+    generate_input("ST_number", station_index)
+
 if __name__ == '__main__':
     """
         გვჭირდება სკრიპტის სამი ნაწილი
@@ -279,12 +386,9 @@ if __name__ == '__main__':
     
     picked_stations()
     calculated_magnitudes()
+    generate_magnitudes_input()
+    generate_stations_magnitudes()
+
     print(STATIONS)
-
-
-
-
-
-
 
     
