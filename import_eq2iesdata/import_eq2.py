@@ -32,6 +32,8 @@ KILOMETER_DEVIDED_DEGREE_RATIO = 111.19492664455873
 SOFTWARE_NAMES = {'LOCSAT':'LocSAT(Seiscomp)'}
 WAVE_TYPES = {'P':'Px'}
 
+MAGNITUDE_TYPES = {'MLv':'mlv', 'MLh':'mlh', 'mb':'mb', 'ML':'ml', 'M':'M' }
+
 FORM_LIST = []
 STATIONS = {}
 
@@ -77,13 +79,23 @@ def convert_seiscomp_time_to_shm_time(time):
 	msec = a.ljust(3,'0')
 	return day + "-" + months[int(month)-1] + "-" + year + "_"  + HH + ':' + MM + ':' + ss + '.' + msec
 
+def convert_magnitude_name(magnitude):
+    magnitude_name_lowercase = magnitude.lower()
+    for key, value in MAGNITUDE_TYPES.items():
+        if key.lower() == magnitude_name_lowercase:
+            return value
+
+    print(f'ERROR: This Magnitude Type: {magnitude} does not exist in iesdata.iliauni.edu.ge')
+    logging.critical(f'{magnitude}, მაგნიტუდის ტიპი {magnitude} არ არსებობს iesdata.iliauni.edu.ge-ზე')
+    return None
+
 # ფუნქცია აგენერირებს input-ებს მიწოდებული name(სახელი) და value(მნიშვნელობა) მნიშვნელობებით
-def generete_input(name, value, func_name='generete_input'):
+def generate_input(name, value, func_name='generate_input'):
     FORM_LIST.append("<input name='" + str(name) + "' type='text' value='" + str(value) + "' />")
     logging.debug(f'<{func_name} - name: {name}; value: {value}>')
 
 # ფუნქცია აგენერირებს input-ებს
-def smart_generete_input(name, element,first_child, second_child, round_number = None, convert_time_format = False):
+def smart_generate_input(name, element,first_child, second_child, round_number = None, convert_time_format = False):
 	
     if element.find(first_child) is not None and element.find(first_child).find(second_child) is not None:
         value = element.find(first_child).find(second_child).text
@@ -92,7 +104,7 @@ def smart_generete_input(name, element,first_child, second_child, round_number =
         if convert_time_format:
             value = convert_seiscomp_time_to_shm_time(value)
 
-        generete_input(name, value, func_name='smart_generete_input')
+        generate_input(name, value, func_name='smart_generate_input')
 
 # ვავსებთ station ლექსიკონს იმ მიზნით რომ პიკები დაჯგუფდეს სადგურების მიხედვით
 def picked_stations():
@@ -156,6 +168,35 @@ def picked_stations():
         else:
             continue
 
+#station ლექსიკონში მაგნიტუდების შევსება
+def calculated_magnitudes():
+    magnitude_elements = origin_element.findall('magnitude')
+    for magnitude_element in magnitude_elements:
+        stationMagnitudeContributions = magnitude_element.findall('stationMagnitudeContribution')
+
+        for stationMagnitudeContribution in stationMagnitudeContributions:
+            stationMagnitudeID = stationMagnitudeContribution.find('stationMagnitudeID').text
+            stations_magnitude = origin_element.find("*[@publicID='" + stationMagnitudeID + "']")
+            stations_amplitude_ID = stations_magnitude.find('amplitudeID').text
+            station_amplitude = eventParameters_element.find("*[@publicID='" + stations_amplitude_ID + "']")
+            # station_amplitude_value = station_amplitude.find('amplitude').find('value').text
+
+            station_code = stations_magnitude.find('waveformID').attrib['stationCode']
+            # print(station_code)
+            # print(station_amplitude_value)
+            #წავიკითხოთ მაგნიტუდის ტიპი და stations ლექსიკონში დავამატოთ შესაბამისი ახალი ლექსიკონი
+            magnitude_type = convert_magnitude_name(stations_magnitude.find('type').text)
+            if 'magnitudes' not in STATIONS[station_code]:
+                STATIONS[station_code]['magnitudes'] = {}
+            if 	magnitude_type not in STATIONS[station_code]['magnitudes']:
+                STATIONS[station_code]['magnitudes'][magnitude_type] = {}
+            # print(magnitude_type)
+            # print(magnitude.find('magnitude').find('value').text)
+            STATIONS[station_code]['magnitudes'][magnitude_type]['value'] = round(float(stations_magnitude.find('magnitude').find('value').text), 2)
+            #+ თუ სადგურის მაგნიტუდების residual-ები არის მაშინ შეივსოს ლექსიკონი შესაბამისი ინფორმაციით
+            if stationMagnitudeContribution.find('residual') is not None:
+                STATIONS[station_code]['magnitudes'][magnitude_type]['residual'] = stationMagnitudeContribution.find('residual').text
+            STATIONS[station_code]['magnitudes'][magnitude_type]['amplitude'] = station_amplitude.find('amplitude').find('value').text
 
 if __name__ == '__main__':
     """
@@ -168,7 +209,7 @@ if __name__ == '__main__':
     xml_dump(XML_PATH, EVENT_ID, SERVER_IP)
     file = open(XML_PATH, "r")
 
-    xml_file_content = xmlstring = re.sub(' xmlns="[^"]+"', '', file.read(), count=1)
+    xml_file_content = re.sub(' xmlns="[^"]+"', '', file.read(), count=1)
 
     #String დან xml-ის "გაპარსვა"
     root = ET.fromstring(xml_file_content)
@@ -189,37 +230,37 @@ if __name__ == '__main__':
 
     logging.debug(f'soft variable - {soft}')
 
-    generete_input("soft", soft )
+    generate_input("soft", soft )
 
-    smart_generete_input("EQ_time", origin_element, 'time', 'value', convert_time_format = True)
-    smart_generete_input("EQ_rms", origin_element, 'time', 'uncertainty', 3)
-    # generete_input("EQ_rms", round(float(origin_element.find('time').find('uncertainty').text), 3 ))
+    smart_generate_input("EQ_time", origin_element, 'time', 'value', convert_time_format = True)
+    smart_generate_input("EQ_rms", origin_element, 'time', 'uncertainty', 3)
+    # generate_input("EQ_rms", round(float(origin_element.find('time').find('uncertainty').text), 3 ))
 
-    smart_generete_input("EQ_latitude", origin_element, 'latitude', 'value', 4)
-    smart_generete_input("EQ_err_lat", origin_element, 'latitude', 'uncertainty', 3)
-    # generete_input("EQ_latitude", round(float(origin_element.find('latitude').find('value').text), 4 ))
-    # generete_input("EQ_err_lat", round(float(origin_element.find('latitude').find('uncertainty').text), 3))
+    smart_generate_input("EQ_latitude", origin_element, 'latitude', 'value', 4)
+    smart_generate_input("EQ_err_lat", origin_element, 'latitude', 'uncertainty', 3)
+    # generate_input("EQ_latitude", round(float(origin_element.find('latitude').find('value').text), 4 ))
+    # generate_input("EQ_err_lat", round(float(origin_element.find('latitude').find('uncertainty').text), 3))
 
-    smart_generete_input("EQ_longitude", origin_element, 'longitude', 'value', 4)
-    smart_generete_input("EQ_err_long", origin_element, 'longitude', 'uncertainty', 3)
-    # generete_input("EQ_longitude", round(float(origin_element.find('longitude').find('value').text), 4 ))
-    # generete_input("EQ_err_long", round(float(origin_element.find('longitude').find('uncertainty').text), 3 ))
+    smart_generate_input("EQ_longitude", origin_element, 'longitude', 'value', 4)
+    smart_generate_input("EQ_err_long", origin_element, 'longitude', 'uncertainty', 3)
+    # generate_input("EQ_longitude", round(float(origin_element.find('longitude').find('value').text), 4 ))
+    # generate_input("EQ_err_long", round(float(origin_element.find('longitude').find('uncertainty').text), 3 ))
 
-    smart_generete_input("EQ_depth", origin_element, 'depth', 'value', 3)
-    smart_generete_input("EQ_err_depth", origin_element, 'depth', 'uncertainty', 3)
-    # generete_input("EQ_depth", round(float(origin_element.find('depth').find('value').text), 3 ))
-    # generete_input("EQ_err_depth", round(float(origin_element.find('depth').find('uncertainty').text), 3))
+    smart_generate_input("EQ_depth", origin_element, 'depth', 'value', 3)
+    smart_generate_input("EQ_err_depth", origin_element, 'depth', 'uncertainty', 3)
+    # generate_input("EQ_depth", round(float(origin_element.find('depth').find('value').text), 3 ))
+    # generate_input("EQ_err_depth", round(float(origin_element.find('depth').find('uncertainty').text), 3))
 
-    smart_generete_input("EQ_phases_count", origin_element, 'quality', 'associatedPhaseCount', 3)
-    smart_generete_input("EQ_phases_used_count", origin_element, 'quality', 'usedPhaseCount', 3)
-    # generete_input("EQ_phases_count", origin_element.find('quality').find('associatedPhaseCount').text)
-    # generete_input("EQ_phases_used_count", origin_element.find('quality').find('usedPhaseCount').text)
+    smart_generate_input("EQ_phases_count", origin_element, 'quality', 'associatedPhaseCount', 3)
+    smart_generate_input("EQ_phases_used_count", origin_element, 'quality', 'usedPhaseCount', 3)
+    # generate_input("EQ_phases_count", origin_element.find('quality').find('associatedPhaseCount').text)
+    # generate_input("EQ_phases_used_count", origin_element.find('quality').find('usedPhaseCount').text)
 
-    smart_generete_input("EQ_station_used_count", origin_element, 'quality', 'usedStationCount')
-    # generete_input("EQ_station_used_count", origin_element.find('quality').find('usedStationCount').text )
+    smart_generate_input("EQ_station_used_count", origin_element, 'quality', 'usedStationCount')
+    # generate_input("EQ_station_used_count", origin_element.find('quality').find('usedStationCount').text )
 
-    smart_generete_input("EQ_max_azimuthal_gap", origin_element, 'quality', 'azimuthalGap', 3)
-    # smart_generete_input("minHorizontalUncertainty",origin_element,'uncertainty','minHorizontalUncertainty')
+    smart_generate_input("EQ_max_azimuthal_gap", origin_element, 'quality', 'azimuthalGap', 3)
+    # smart_generate_input("minHorizontalUncertainty",origin_element,'uncertainty','minHorizontalUncertainty')
 
     #გასარკვევია 
     # if origin_element.find('uncertainty').find('minHorizontalUncertainty') is not None:
@@ -237,7 +278,9 @@ if __name__ == '__main__':
 
     
     picked_stations()
+    calculated_magnitudes()
     print(STATIONS)
+
 
 
 
