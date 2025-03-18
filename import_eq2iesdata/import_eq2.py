@@ -9,7 +9,7 @@ import time
 import logging
 from logging.handlers import RotatingFileHandler
 
-
+# იწერება კონფიგურაცია, რომლითაც მონაცემს წამოიღებს მიწისძვრის შესახებ
 SERVER_IP = 'localhost'
 SCRIPT_PATH = os.path.dirname(os.path.abspath(__file__))
 EVENT_ID = sys.argv[2]
@@ -19,10 +19,12 @@ TEMP_DIR_PATH = SCRIPT_PATH + "/temp"
 if not os.path.isdir(TEMP_DIR_PATH):
     os.mkdir(TEMP_DIR_PATH)
 
+# log-ების მისამართი
 LOGS_DIR_PATH = SCRIPT_PATH + "/logs"
 if not os.path.isdir(LOGS_DIR_PATH):
     os.mkdir(LOGS_DIR_PATH)
 
+# xml-ის და html-ის მისამართები, ასევე ბრაუზერი, რომლითან გახსნის html-ს 
 XML_PATH = TEMP_DIR_PATH + "/eq_log.xml"
 HTML_FILE_PATH = TEMP_DIR_PATH + "/redirectPostEq.html"
 BROWSER = "firefox"
@@ -30,15 +32,17 @@ BROWSER = "firefox"
 # 4 ასევე მანძილის გრადუსებიდან კილომეტრებში გადასაყვანად ვიყენებთ 111.19492664455873 გამრავლებას რამდენად სწორია ?? 
 KILOMETER_DEVIDED_DEGREE_RATIO = 111.19492664455873
 
+# იქმნება dictionary-ები, რომლებიც სეისკომპში არსებულ მონაცამებს გადათარგმნის ისეთ მონაცემებად, რომელსაც სერვერზე php სკრიპტი წაიკითხავს
 SOFTWARE_NAMES = {'LOCSAT':'LocSAT(Seiscomp)'}
 WAVE_TYPES = {'P':'Px'}
 
 MAGNITUDE_TYPES = {'MLv':'mlv', 'MLh':'mlh', 'mb':'mb', 'ML':'ml', 'M':'M' }
 
+# იქმენა ცარიელი ცვლადები, რომლებშიც შემდგომ შეივსება მონაცემები
 FORM_LIST = []
 STATIONS = {}
 
-# Set up logging for the scheduler
+# logging-ის კონფიგურაცია
 LOG_FILENAME = f'{LOGS_DIR_PATH}/import_eq2.log'
 MAX_LOG_SIZE = 5 * 1024 * 1024  # 5 MB
 BACKUP_COUNT = 3  # Keep 3 backup log files
@@ -53,31 +57,100 @@ logger = logging.getLogger()
 logger.setLevel(logging.DEBUG)
 logger.addHandler(rotating_handler)
 
+# ეს ფუნქცია პასუხისმგებელია xml-ის დაგენერირებაზე სეისკომპიდან გადმოცემული event_id-ით
 def xml_dump(xml_path, event_id, server_ip):
     # seiscomp exec scxmldump -APMfmp -o /home/sysop/Code/Seiscomp_Scripts/import_eq2iesdata/temp/eq_log.xml -E grg2025fary -d localhost
     command = f'seiscomp exec scxmldump -APMfmp -o {xml_path} -E {event_id} -d {server_ip}'
     try:
         subprocess.run(command, check=True, shell=True )
+        logging.debug(f'<xml_dump - xml წარმატებით დაგენერირდა>')
     except subprocess.CalledProcessError as e:
-        print("Error:", e)
+        # print("Error:", e)
+        logging.critical(f'<xml_dump - xml-ის დაგენერირების დროს დაფიქსირდა შეცდომა: {e}>')
         sys.exit(1)
+
+# ეს ფუნქცია მთავარ origin მონაცემებს გაპარსავს xml-დან
+def picked_earthquake_origin():
+    # მიწისძვრის პარამეტრების წაკითხვა და input-ების დაგენერირება
+    #ამ ეტაპზე მოწმდება მიწისძვრა დათვლილია თუ არა რაიმე მეთოდით (მაგ:LOCSAT)
+    if origin_element.find('methodID') is not None:
+        soft = origin_element.find('methodID').text
+        for key, value in SOFTWARE_NAMES.items():
+            if key == soft:
+                soft = value
+                break
+    else:
+        soft = 'Raw'
+
+    logging.debug(f'soft variable - {soft}')
+
+    generate_input("soft", soft )
+
+    smart_generate_input("EQ_time", origin_element, 'time', 'value', convert_time_format = True)
+    smart_generate_input("EQ_rms", origin_element, 'time', 'uncertainty', 3)
+    # generate_input("EQ_rms", round(float(origin_element.find('time').find('uncertainty').text), 3 ))
+
+    smart_generate_input("EQ_latitude", origin_element, 'latitude', 'value', 4)
+    smart_generate_input("EQ_err_lat", origin_element, 'latitude', 'uncertainty', 3)
+    # generate_input("EQ_latitude", round(float(origin_element.find('latitude').find('value').text), 4 ))
+    # generate_input("EQ_err_lat", round(float(origin_element.find('latitude').find('uncertainty').text), 3))
+
+    smart_generate_input("EQ_longitude", origin_element, 'longitude', 'value', 4)
+    smart_generate_input("EQ_err_long", origin_element, 'longitude', 'uncertainty', 3)
+    # generate_input("EQ_longitude", round(float(origin_element.find('longitude').find('value').text), 4 ))
+    # generate_input("EQ_err_long", round(float(origin_element.find('longitude').find('uncertainty').text), 3 ))
+
+    smart_generate_input("EQ_depth", origin_element, 'depth', 'value', 3)
+    smart_generate_input("EQ_err_depth", origin_element, 'depth', 'uncertainty', 3)
+    # generate_input("EQ_depth", round(float(origin_element.find('depth').find('value').text), 3 ))
+    # generate_input("EQ_err_depth", round(float(origin_element.find('depth').find('uncertainty').text), 3))
+
+    smart_generate_input("EQ_phases_count", origin_element, 'quality', 'associatedPhaseCount', 3)
+    smart_generate_input("EQ_phases_used_count", origin_element, 'quality', 'usedPhaseCount', 3)
+    # generate_input("EQ_phases_count", origin_element.find('quality').find('associatedPhaseCount').text)
+    # generate_input("EQ_phases_used_count", origin_element.find('quality').find('usedPhaseCount').text)
+
+    smart_generate_input("EQ_station_used_count", origin_element, 'quality', 'usedStationCount')
+    # generate_input("EQ_station_used_count", origin_element.find('quality').find('usedStationCount').text )
+
+    smart_generate_input("EQ_max_azimuthal_gap", origin_element, 'quality', 'azimuthalGap', 3)
+    # smart_generate_input("minHorizontalUncertainty",origin_element,'uncertainty','minHorizontalUncertainty')
+
+    logging.debug(f'<picked_earthquake_origin - smart input-ები წარმატებით დაგენერირდა>')
+
+    #გასარკვევია 
+    # if origin_element.find('uncertainty').find('minHorizontalUncertainty') is not None:
+    # 	min_horizontal_ancertaint = origin_element.find('uncertainty').find('minHorizontalUncertainty').text
+    # 	max_horizontal_ancertaint = origin_element.find('uncertainty').find('maxHorizontalUncertainty').text
+    # 	avarage = float(min_horizontal_ancertaint) + float(max_horizontal_ancertaint) / 2
+    # 	avarage1 = math.sqrt((float(min_horizontal_ancertaint) * 2 ) + (float(max_horizontal_ancertaint) * 2 ))
+    # 	print('aris')
+    # 	print('min_horizontal_ancertainty : ',origin_element.find('uncertainty').find('minHorizontalUncertainty').text)
+    # 	print('max_horizontal_ancertainty : ',origin_element.find('uncertainty').find('maxHorizontalUncertainty').text)
+    # 	print(avarage)
+    # 	print(avarage1)
+    # else:
+    # 	print('ar aris')
+
+
 
 # ეს ფუნქცია სეისკომპიდან მიღებულ დროს გადაიყვანს SHM-ის დროის ფორმატში
 # მაგ: "2017-12-17T23:26:41.96Z" გადავა შემდეგი სახით : '17-DEC-2017_23:26:41.960'
 def convert_seiscomp_time_to_shm_time(time):
-	
-	months = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC']
-	seiscomp_msec = time[20:23]
-	seiscomp_msec_splited = seiscomp_msec.split('Z')
-	a = seiscomp_msec_splited[0]	
-	year = time[:4]
-	day = time[8:10]
-	month = time[5:7]
-	HH = time[11:13]
-	MM = time[14:16]
-	ss = time[17:19]
-	msec = a.ljust(3,'0')
-	return day + "-" + months[int(month)-1] + "-" + year + "_"  + HH + ':' + MM + ':' + ss + '.' + msec
+    months = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC']
+    seiscomp_msec = time[20:23]
+    seiscomp_msec_splited = seiscomp_msec.split('Z')
+    a = seiscomp_msec_splited[0]	
+    year = time[:4]
+    day = time[8:10]
+    month = time[5:7]
+    HH = time[11:13]
+    MM = time[14:16]
+    ss = time[17:19]
+    msec = a.ljust(3,'0')
+    result = day + "-" + months[int(month)-1] + "-" + year + "_"  + HH + ':' + MM + ':' + ss + '.' + msec
+    logging.debug(f'<convert_seiscomp_time_to_shm_time - დროის ფორმატი წარმატებით გარდაიქმნა: {result}>')
+    return result
 
 def convert_magnitude_name(magnitude):
     magnitude_name_lowercase = magnitude.lower()
@@ -85,7 +158,7 @@ def convert_magnitude_name(magnitude):
         if key.lower() == magnitude_name_lowercase:
             return value
 
-    print(f'ERROR: This Magnitude Type: {magnitude} does not exist in iesdata.iliauni.edu.ge')
+    # print(f'ERROR: This Magnitude Type: {magnitude} does not exist in iesdata.iliauni.edu.ge')
     logging.critical(f'{magnitude}, მაგნიტუდის ტიპი {magnitude} არ არსებობს iesdata.iliauni.edu.ge-ზე')
     return None
 
@@ -129,9 +202,9 @@ def generate_input(name, value, func_name='generate_input'):
     FORM_LIST.append("<input name='" + str(name) + "' type='text' value='" + str(value) + "' />")
     logging.debug(f'<{func_name} - name: {name}; value: {value}>')
 
-# ფუნქცია აგენერირებს input-ებს
+# ფუნქცია xml-ს გაპარსავს, ხოლო შემდგომ დააგენერირებს input-ებს generate_input ფუნქციის გამოყენებით
 def smart_generate_input(name, element,first_child, second_child, round_number = None, convert_time_format = False):
-	
+	# xml-ს გაპარსვა სასურველი მონაცემების გამოყენებით
     if element.find(first_child) is not None and element.find(first_child).find(second_child) is not None:
         value = element.find(first_child).find(second_child).text
         if round_number is not None:
@@ -143,8 +216,10 @@ def smart_generate_input(name, element,first_child, second_child, round_number =
 
 # ფუნქცია აგენერირებს html გვერდს მიწოდებული form(ფორმის) მიხედვით
 def generate_html():
+    # იქმნება html-ისთვის ფორმა FORM_LIST ცვლადში არსებული მონაცემებით
     form = f"<form>\n" + "\n".join(FORM_LIST) + "\n</form>"
-    return f"""<!DOCTYPE html PUBLIC '-//W3C//DTD XHTML 1.0 Transitional//EN' 'http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd'>
+    # იქმნება string ცვლადი html, რომელიც შემდგომ ჩაიწერება html-ის ფაილში
+    html = f"""<!DOCTYPE html PUBLIC '-//W3C//DTD XHTML 1.0 Transitional//EN' 'http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd'>
 <html xmlns='http://www.w3.org/1999/xhtml'>
 <head>
 <meta http-equiv='Content-Type' content='text/html; charset=utf-8' />
@@ -159,6 +234,16 @@ def generate_html():
 </script>
 </body>
 </html> """
+    # ქმნის html-ის ფაილს და წერს ცვლად html-ში არსებულ მონაცემს
+    html_file = open(HTML_FILE_PATH, "w")
+    html_file.write(html)
+    html_file.close()
+    # html-ის ფაილს ხსნის ბრაუზერში, რომელიც მონაცემს აგზავნის iesdata-ზე (10.0.0.237)
+    os.system(BROWSER + " " + HTML_FILE_PATH)
+    time.sleep(2)
+    # თუ html-ის ფაილი არსებობს, წაშლის მას
+    if os.path.isfile(HTML_FILE_PATH):
+        os.remove(HTML_FILE_PATH)
 
 # ვავსებთ station ლექსიკონს იმ მიზნით რომ პიკები დაჯგუფდეს სადგურების მიხედვით
 def picked_stations():
@@ -307,7 +392,8 @@ def generate_stations_magnitudes():
                 if 'residual' in STATIONS[station_code]['magnitudes'][magnitude_type]:
                     generate_input(stm + "residual", STATIONS[station_code]['magnitudes'][magnitude_type]['residual'])
                 if 'amplitude' in STATIONS[station_code]['magnitudes'][magnitude_type]:
-                    print('yes')	
+                    pass
+                    # print('yes')	
                 mag_index += 1 
         #+ input-ის გენრაცია მაშინ როცა magnitude-ს ლექსიკონი არსებობს 
         if 'magnitudes' in 	STATIONS[station_code]:
@@ -347,79 +433,12 @@ if __name__ == '__main__':
     eventParameters_element =  root.find('EventParameters')
     origin_element = eventParameters_element.find('origin')
 
-    # მიწისძვრის პარამეტრების წაკითხვა და input-ების დაგენერირება
-    #ამ ეტაპზე მოწმდება მიწისძვრა დათვლილია თუ არა რაიმე მეთოდით (მაგ:LOCSAT)
-    if origin_element.find('methodID') is not None:
-        soft = origin_element.find('methodID').text
-        for key, value in SOFTWARE_NAMES.items():
-            if key == soft:
-                soft = value
-                break
-    else:
-        soft = 'Raw'
 
-    logging.debug(f'soft variable - {soft}')
-
-    generate_input("soft", soft )
-
-    smart_generate_input("EQ_time", origin_element, 'time', 'value', convert_time_format = True)
-    smart_generate_input("EQ_rms", origin_element, 'time', 'uncertainty', 3)
-    # generate_input("EQ_rms", round(float(origin_element.find('time').find('uncertainty').text), 3 ))
-
-    smart_generate_input("EQ_latitude", origin_element, 'latitude', 'value', 4)
-    smart_generate_input("EQ_err_lat", origin_element, 'latitude', 'uncertainty', 3)
-    # generate_input("EQ_latitude", round(float(origin_element.find('latitude').find('value').text), 4 ))
-    # generate_input("EQ_err_lat", round(float(origin_element.find('latitude').find('uncertainty').text), 3))
-
-    smart_generate_input("EQ_longitude", origin_element, 'longitude', 'value', 4)
-    smart_generate_input("EQ_err_long", origin_element, 'longitude', 'uncertainty', 3)
-    # generate_input("EQ_longitude", round(float(origin_element.find('longitude').find('value').text), 4 ))
-    # generate_input("EQ_err_long", round(float(origin_element.find('longitude').find('uncertainty').text), 3 ))
-
-    smart_generate_input("EQ_depth", origin_element, 'depth', 'value', 3)
-    smart_generate_input("EQ_err_depth", origin_element, 'depth', 'uncertainty', 3)
-    # generate_input("EQ_depth", round(float(origin_element.find('depth').find('value').text), 3 ))
-    # generate_input("EQ_err_depth", round(float(origin_element.find('depth').find('uncertainty').text), 3))
-
-    smart_generate_input("EQ_phases_count", origin_element, 'quality', 'associatedPhaseCount', 3)
-    smart_generate_input("EQ_phases_used_count", origin_element, 'quality', 'usedPhaseCount', 3)
-    # generate_input("EQ_phases_count", origin_element.find('quality').find('associatedPhaseCount').text)
-    # generate_input("EQ_phases_used_count", origin_element.find('quality').find('usedPhaseCount').text)
-
-    smart_generate_input("EQ_station_used_count", origin_element, 'quality', 'usedStationCount')
-    # generate_input("EQ_station_used_count", origin_element.find('quality').find('usedStationCount').text )
-
-    smart_generate_input("EQ_max_azimuthal_gap", origin_element, 'quality', 'azimuthalGap', 3)
-    # smart_generate_input("minHorizontalUncertainty",origin_element,'uncertainty','minHorizontalUncertainty')
-
-    #გასარკვევია 
-    # if origin_element.find('uncertainty').find('minHorizontalUncertainty') is not None:
-    # 	min_horizontal_ancertaint = origin_element.find('uncertainty').find('minHorizontalUncertainty').text
-    # 	max_horizontal_ancertaint = origin_element.find('uncertainty').find('maxHorizontalUncertainty').text
-    # 	avarage = float(min_horizontal_ancertaint) + float(max_horizontal_ancertaint) / 2
-    # 	avarage1 = math.sqrt((float(min_horizontal_ancertaint) * 2 ) + (float(max_horizontal_ancertaint) * 2 ))
-    # 	print('aris')
-    # 	print('min_horizontal_ancertainty : ',origin_element.find('uncertainty').find('minHorizontalUncertainty').text)
-    # 	print('max_horizontal_ancertainty : ',origin_element.find('uncertainty').find('maxHorizontalUncertainty').text)
-    # 	print(avarage)
-    # 	print(avarage1)
-    # else:
-    # 	print('ar aris')
-
-    
+    picked_earthquake_origin()    
     picked_stations()
-    print(STATIONS)
     calculated_magnitudes()
     generate_magnitudes_input()
     generate_stations_magnitudes()
-    
+    generate_html()
 
-    html_file = open(HTML_FILE_PATH, "w")
-    html_file.write(generate_html())
-    html_file.close()
-    os.system(BROWSER + " " + HTML_FILE_PATH)
-    time.sleep(2)
-
-    # if os.path.isfile(HTML_FILE_PATH):
-    #     os.remove(HTML_FILE_PATH)
-        
+    # print(STATIONS)
