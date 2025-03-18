@@ -65,7 +65,7 @@ def xml_dump(xml_path, event_id, server_ip):
         subprocess.run(command, check=True, shell=True )
         logging.debug(f'<xml_dump - xml წარმატებით დაგენერირდა>')
     except subprocess.CalledProcessError as e:
-        print("Error:", e)
+        # print("Error:", e)
         logging.critical(f'<xml_dump - xml-ის დაგენერირების დროს დაფიქსირდა შეცდომა: {e}>')
         sys.exit(1)
 
@@ -158,7 +158,7 @@ def convert_magnitude_name(magnitude):
         if key.lower() == magnitude_name_lowercase:
             return value
 
-    print(f'ERROR: This Magnitude Type: {magnitude} does not exist in iesdata.iliauni.edu.ge')
+    # print(f'ERROR: This Magnitude Type: {magnitude} does not exist in iesdata.iliauni.edu.ge')
     logging.critical(f'{magnitude}, მაგნიტუდის ტიპი {magnitude} არ არსებობს iesdata.iliauni.edu.ge-ზე')
     return None
 
@@ -392,7 +392,8 @@ def generate_stations_magnitudes():
                 if 'residual' in STATIONS[station_code]['magnitudes'][magnitude_type]:
                     generate_input(stm + "residual", STATIONS[station_code]['magnitudes'][magnitude_type]['residual'])
                 if 'amplitude' in STATIONS[station_code]['magnitudes'][magnitude_type]:
-                    print('yes')	
+                    pass
+                    # print('yes')	
                 mag_index += 1 
         #+ input-ის გენრაცია მაშინ როცა magnitude-ს ლექსიკონი არსებობს 
         if 'magnitudes' in 	STATIONS[station_code]:
@@ -435,8 +436,9 @@ if __name__ == '__main__':
 
     picked_earthquake_origin()    
     picked_stations()
-    print(STATIONS)
     calculated_magnitudes()
     generate_magnitudes_input()
     generate_stations_magnitudes()
     generate_html()
+
+    # print(STATIONS)
