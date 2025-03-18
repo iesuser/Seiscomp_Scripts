@@ -5,3 +5,16 @@ MAGNITUDE_TYPES = {'MLv':'mlv', 'MLh':'mlh', 'mb':'mb', 'ML':'ml', 'M':'M' }
 
 რა პრინციპით უნდა ავიღოთ წონები seiscomp-დან, რადგან seiscomp-ის xml-ში ავტომატურად უკვე განსაზღვრულია წონები.
 primaries[stName]['waves'][waveName]['weight'] = '<?php if(isset($_POST['soft']) and $_POST['soft'] == 'LocSAT(SHM)') echo $_POST[$STnum.$wvNum."quality"]; else echo $_POST[$STnum.$wvNum."weight"];?>' ;
+
+ამ ფორმატით უნდა გადაეცეს php-ის, სადაც length არის კონკრეტულ სადგურზე რამდენი მდგენელი არის, რომელსაც polarity აქვს (მაქსიმუმ შესაძლოა თითო სადგურს ჰქონდეს 3 (Z, E, N))
+comp name არის უშუალოდ მდგენელი, ხოლო sign არის მაგის value (+ / -)
+<input name='ST9_wave0_compLength' type='text' value='2' />
+
+<input name='ST9_wave0_comp0_name' type='text' value='Z' />
+<input name='ST9_wave0_comp0_sign' type='text' value='+' />
+
+<input name='ST9_wave0_comp1_name' type='text' value='E' />
+<input name='ST9_wave0_comp1_sign' type='text' value='-' />
+
+<input name='ST9_wave0_comp2_name' type='text' value='N' />
+<input name='ST9_wave0_comp2_sign' type='text' value='+' />
