@@ -2,3 +2,6 @@ magnitude_types = {'MLv':'mlv', 'MLh':'mlh', 'mb':'mb', 'M':'ml' }
 MAGNITUDE_TYPES = {'MLv':'mlv', 'MLh':'mlh', 'mb':'mb', 'ML':'ml', 'M':'M' }
 
 რომელი მაგნიტუდა როგორ გადადის iesdata -ზე
+
+რა პრინციპით უნდა ავიღოთ წონები seiscomp-დან, რადგან seiscomp-ის xml-ში ავტომატურად უკვე განსაზღვრულია წონები.
+primaries[stName]['waves'][waveName]['weight'] = '<?php if(isset($_POST['soft']) and $_POST['soft'] == 'LocSAT(SHM)') echo $_POST[$STnum.$wvNum."quality"]; else echo $_POST[$STnum.$wvNum."weight"];?>' ;

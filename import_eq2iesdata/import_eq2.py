@@ -38,6 +38,8 @@ WAVE_TYPES = {'P':'Px'}
 
 MAGNITUDE_TYPES = {'MLv':'mlv', 'MLh':'mlh', 'mb':'mb', 'ML':'ml', 'M':'M' }
 
+ONSET_TYPES = {'impulsive': [0, 'i'], 'emergent': [1, 'e'], 'unset': [2, 'e'], 'questionable': [3, 'e']}
+
 # იქმენა ცარიელი ცვლადები, რომლებშიც შემდგომ შეივსება მონაცემები
 FORM_LIST = []
 STATIONS = {}
@@ -190,10 +192,10 @@ def get_wave_time_residuals(station_code):
 			s_wave_time_residual = STATIONS[station_code]['arrivals'][wave_type]['timeResidual']
 
 	if p_wave_time_residual is not None:
-		p_wave_time_residual = round(float(p_wave_time_residual), 4)
+		p_wave_time_residual = round(float(p_wave_time_residual), 2)
 
 	if s_wave_time_residual is not None:
-		s_wave_time_residual = round(float(s_wave_time_residual), 4)
+		s_wave_time_residual = round(float(s_wave_time_residual), 2)
 
 	return p_wave_time_residual, s_wave_time_residual
 
@@ -295,18 +297,33 @@ def picked_stations():
                 STATIONS[station_code]['arrivals'][phase]['timeResidual'] = arrival.find('timeResidual').text
 
             if manual_picked:
+                onset_element = pick_element.find('onset')
+                if onset_element is not None:
+                    onset_string = onset_element.text
+                    onset_list = ONSET_TYPES.get(onset_string)
+                    STATIONS[station_code]['arrivals'][phase]['weight'] = onset_list[0]
+                    STATIONS[station_code]['arrivals'][phase]['quality'] = onset_list[0]
+                    STATIONS[station_code]['arrivals'][phase]['onsetType'] = onset_list[1]
+                else:
+                    onset_list = ONSET_TYPES.get('unset')
+                    STATIONS[station_code]['arrivals'][phase]['weight'] = onset_list[0]
+                    STATIONS[station_code]['arrivals'][phase]['quality'] = onset_list[0]
+                    STATIONS[station_code]['arrivals'][phase]['onsetType'] = onset_list[1]
+
                 STATIONS[station_code]['arrivals'][phase]['time'] = convert_seiscomp_time_to_shm_time(pick_element.find('time').find('value').text)
             else:
+                onset_list = ONSET_TYPES.get('unset')
+                STATIONS[station_code]['arrivals'][phase]['weight'] = onset_list[0]
+                STATIONS[station_code]['arrivals'][phase]['quality'] = onset_list[0]
+                STATIONS[station_code]['arrivals'][phase]['onsetType'] = onset_list[1]
+
                 STATIONS[station_code]['arrivals'][phase]['time'] = ''
                 
             if arrival.find('weight') is not None :
-                STATIONS[station_code]['arrivals'][phase]['weight'] = arrival.find('weight').text
                 if int(arrival.find('weight').text) > 0 :
                     STATIONS[station_code]['arrivals'][phase]['used_for_calculation'] = "Yes"
                 else:
                     STATIONS[station_code]['arrivals'][phase]['used_for_calculation'] = "No"
-            else:
-                STATIONS[station_code]['arrivals'][phase]['weight'] = ''
 
         else:
             continue
@@ -406,6 +423,8 @@ def generate_stations_magnitudes():
             stw = st + 'wave' + str(arrival_index) + '_'
             generate_input(stw + 'name', phase_name)
             generate_input(stw + 'time', STATIONS[station_code]["arrivals"][phase_name]['time'])
+            generate_input(stw + 'onsetType', STATIONS[station_code]["arrivals"][phase_name]['onsetType'])
+            generate_input(stw + 'quality', STATIONS[station_code]["arrivals"][phase_name]['quality'])
             generate_input(stw + 'weight', STATIONS[station_code]["arrivals"][phase_name]['weight'])
             generate_input(stw + 'used_for_calculation', STATIONS[station_code]["arrivals"][phase_name]['used_for_calculation'])
             arrival_index += 1
