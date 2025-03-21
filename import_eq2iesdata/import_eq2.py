@@ -34,11 +34,15 @@ KILOMETER_DEVIDED_DEGREE_RATIO = 111.19492664455873
 
 # იქმნება dictionary-ები, რომლებიც სეისკომპში არსებულ მონაცამებს გადათარგმნის ისეთ მონაცემებად, რომელსაც სერვერზე php სკრიპტი წაიკითხავს
 SOFTWARE_NAMES = {'LOCSAT':'LocSAT(Seiscomp)'}
-WAVE_TYPES = {'P':'Px'}
+WAVE_TYPES = {'P':'Px', 'S': 'Sx'}
 
 MAGNITUDE_TYPES = {'MLv':'mlv', 'MLh':'mlh', 'mb':'mb', 'ML':'ml', 'M':'M' }
 
-ONSET_TYPES = {'impulsive': [0, 'i'], 'emergent': [1, 'e'], 'unset': [2, 'e'], 'questionable': [3, 'e']}
+ONSET_TYPES = {'impulsive': [0, 'i'], 'emergent': [1, 'e'], 'unset': [2, 'e'], 'questionable': [3, 'e'], 'none': [4,'']}
+
+POLARITY_TYPES = {'positive': '+', 'negative': '-', 'undecidable': ''}
+
+POLARITY_CHANNEL_CODES = {'HHE': 'E', 'HHZ': 'Z', 'HHN': 'N'}
 
 # იქმენა ცარიელი ცვლადები, რომლებშიც შემდგომ შეივსება მონაცემები
 FORM_LIST = []
@@ -138,8 +142,20 @@ def picked_earthquake_origin():
 
 # ეს ფუნქცია სეისკომპიდან მიღებულ დროს გადაიყვანს SHM-ის დროის ფორმატში
 # მაგ: "2017-12-17T23:26:41.96Z" გადავა შემდეგი სახით : '17-DEC-2017_23:26:41.960'
-def convert_seiscomp_time_to_shm_time(time):
+def convert_seiscomp_time_to_shm_time(time, manual_pick=True):
     months = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC']
+    if not manual_pick:
+        time_list = time.split('-')[0].split('.')
+        year = time_list[0][:4]
+        month = time_list[0][4:6]
+        day = time_list[0][6:8]
+        HH = time_list[1][:2]
+        MM = time_list[1][2:4]
+        ss = time_list[1][4:6]
+        msec = time_list[2].ljust(3,'0')
+        result = day + "-" + months[int(month)-1] + "-" + year + "_"  + HH + ':' + MM + ':' + ss + '.' + msec
+        logging.debug(f'<convert_seiscomp_time_to_shm_time - დროის ფორმატი წარმატებით გარდაიქმნა: {result}>')
+        return result
     seiscomp_msec = time[20:23]
     seiscomp_msec_splited = seiscomp_msec.split('Z')
     a = seiscomp_msec_splited[0]	
@@ -184,10 +200,10 @@ def get_wave_time_residuals(station_code):
 	s_wave_time_residual = None
 
 	for wave_type in STATIONS[station_code]['arrivals']:
-		if wave_type[:1].lower() == 'p' and int(STATIONS[station_code]['arrivals'][wave_type]['weight']) > 0 \
+		if wave_type[:1].lower() == 'p' and int(STATIONS[station_code]['arrivals'][wave_type]['weight']) != 4 \
 		and 'timeResidual' in STATIONS[station_code]['arrivals'][wave_type].keys():
 			p_wave_time_residual = STATIONS[station_code]['arrivals'][wave_type]['timeResidual']
-		if wave_type[:1].lower() == 's' and int(STATIONS[station_code]['arrivals'][wave_type]['weight']) > 0 \
+		if wave_type[:1].lower() == 's' and int(STATIONS[station_code]['arrivals'][wave_type]['weight']) != 4 \
 		and 'timeResidual' in STATIONS[station_code]['arrivals'][wave_type].keys():	
 			s_wave_time_residual = STATIONS[station_code]['arrivals'][wave_type]['timeResidual']
 
@@ -251,82 +267,89 @@ def generate_html():
 def picked_stations():
     # სადგურების წაკითხვა და input-ების გენერაცია
     arrivals = origin_element.findall('arrival')
-
     for arrival in arrivals:
-        timeUsed = arrival.find('timeUsed').text
-        if timeUsed == 'true':
-            pick_id = arrival.find('pickID').text
-            
-            if pick_id.startswith('Pick'):
-                manual_picked = True
-                pick_element = eventParameters_element.find(f"*[@publicID='{pick_id}']")
-                #სადგურის კოდი
-            else:
-                manual_picked = False
-                pick_element = eventParameters_element.find(f".//amplitude[pickID='{pick_id}']")
+        pick_id = arrival.find('pickID').text
+        
+        if pick_id.startswith('Pick'):
+            manual_picked = True
+            pick_element = eventParameters_element.find(f"*[@publicID='{pick_id}']")
+            #სადგურის კოდი
+        else:
+            manual_picked = False
+            pick_element = eventParameters_element.find(f".//amplitude[pickID='{pick_id}']")
 
-            if pick_element is None:
-                logging.warning(f'<picked_stations - pick_id: {pick_id} არ არის მონაცემი>')
-                continue
+        if pick_element is None:
+            logging.warning(f'<picked_stations - pick_id: {pick_id} არ არის მონაცემი>')
+            continue
 
-            station_code = pick_element.find('waveformID').attrib['stationCode']
+        station_code = pick_element.find('waveformID').attrib['stationCode']
 
-            if station_code not in STATIONS:
-                STATIONS[station_code] = {}
+        if station_code not in STATIONS:
+            STATIONS[station_code] = {}
 
-            STATIONS[station_code]['network'] = pick_element.find('waveformID').attrib['networkCode']
-            STATIONS[station_code]['channel'] = pick_element.find('waveformID').attrib['channelCode']
+        STATIONS[station_code]['network'] = pick_element.find('waveformID').attrib['networkCode']
+        STATIONS[station_code]['channel'] = pick_element.find('waveformID').attrib['channelCode']
 
-            if 'arrivals' not in STATIONS[station_code]:
-                STATIONS[station_code]['arrivals'] = {}
+        if 'arrivals' not in STATIONS[station_code]:
+            STATIONS[station_code]['arrivals'] = {}
 
-            #წავიკითხოთ ტალღის სახელი
-            phase = arrival.find('phase').text
+        #წავიკითხოთ ტალღის სახელი
+        phase = arrival.find('phase').text
 
-            for key, value in WAVE_TYPES.items():
-                if key.lower() == phase.lower():
-                    phase = value
-                    
-            STATIONS[station_code]['azimuth'] = round(float(arrival.find('azimuth').text), 3)
-            #+სადგურებიდან მანძილი გადადის გრადუსიდან კილომეტრში და ისე ხდება მნიშვნელობის შენახვა
-            STATIONS[station_code]['distance'] = round(float(arrival.find('distance').text) * KILOMETER_DEVIDED_DEGREE_RATIO, 3)
-            STATIONS[station_code]['arrivals'][phase] = {}
+        for key, value in WAVE_TYPES.items():
+            if key.lower() == phase.lower():
+                phase = value
+                
+        STATIONS[station_code]['azimuth'] = round(float(arrival.find('azimuth').text), 3)
+        #+სადგურებიდან მანძილი გადადის გრადუსიდან კილომეტრში და ისე ხდება მნიშვნელობის შენახვა
+        STATIONS[station_code]['distance'] = round(float(arrival.find('distance').text) * KILOMETER_DEVIDED_DEGREE_RATIO, 3)
+        STATIONS[station_code]['arrivals'][phase] = {}
 
-            #გასარკვევია როგორ გადავა iesdata-ზე 
-            if arrival.find('timeResidual') is not None:
-                STATIONS[station_code]['arrivals'][phase]['timeResidual'] = arrival.find('timeResidual').text
+        #გასარკვევია როგორ გადავა iesdata-ზე 
+        if arrival.find('timeResidual') is not None:
+            STATIONS[station_code]['arrivals'][phase]['timeResidual'] = arrival.find('timeResidual').text
 
-            if manual_picked:
-                onset_element = pick_element.find('onset')
-                if onset_element is not None:
-                    onset_string = onset_element.text
-                    onset_list = ONSET_TYPES.get(onset_string)
-                    STATIONS[station_code]['arrivals'][phase]['weight'] = onset_list[0]
-                    STATIONS[station_code]['arrivals'][phase]['quality'] = onset_list[0]
-                    STATIONS[station_code]['arrivals'][phase]['onsetType'] = onset_list[1]
-                else:
-                    onset_list = ONSET_TYPES.get('unset')
-                    STATIONS[station_code]['arrivals'][phase]['weight'] = onset_list[0]
-                    STATIONS[station_code]['arrivals'][phase]['quality'] = onset_list[0]
-                    STATIONS[station_code]['arrivals'][phase]['onsetType'] = onset_list[1]
-
-                STATIONS[station_code]['arrivals'][phase]['time'] = convert_seiscomp_time_to_shm_time(pick_element.find('time').find('value').text)
+        if manual_picked:
+            onset_element = pick_element.find('onset')
+            if onset_element is not None:
+                onset_string = onset_element.text
+                onset_list = ONSET_TYPES.get(onset_string)
+                STATIONS[station_code]['arrivals'][phase]['weight'] = onset_list[0]
+                STATIONS[station_code]['arrivals'][phase]['quality'] = onset_list[0]
+                STATIONS[station_code]['arrivals'][phase]['onsetType'] = onset_list[1]
             else:
                 onset_list = ONSET_TYPES.get('unset')
                 STATIONS[station_code]['arrivals'][phase]['weight'] = onset_list[0]
                 STATIONS[station_code]['arrivals'][phase]['quality'] = onset_list[0]
                 STATIONS[station_code]['arrivals'][phase]['onsetType'] = onset_list[1]
+            STATIONS[station_code]['arrivals'][phase]['time'] = convert_seiscomp_time_to_shm_time(pick_element.find('time').find('value').text)
 
-                STATIONS[station_code]['arrivals'][phase]['time'] = ''
-                
-            if arrival.find('weight') is not None :
-                if int(arrival.find('weight').text) > 0 :
-                    STATIONS[station_code]['arrivals'][phase]['used_for_calculation'] = "Yes"
-                else:
-                    STATIONS[station_code]['arrivals'][phase]['used_for_calculation'] = "No"
+            polarity_element = pick_element.find('polarity')
+            if polarity_element is not None:
+                if 'comps' not in STATIONS[station_code]['arrivals'][phase]:
+                    STATIONS[station_code]['arrivals'][phase]['comps'] = []
+                    STATIONS[station_code]['arrivals'][phase]['compLength'] = 0
 
+                channel_code = pick_element.find('waveformID').attrib['channelCode']
+                comp_list = [POLARITY_CHANNEL_CODES[channel_code],POLARITY_TYPES[polarity_element.text]]
+                STATIONS[station_code]['arrivals'][phase]['comps'].append(comp_list)
+                STATIONS[station_code]['arrivals'][phase]['compLength'] += 1
         else:
-            continue
+            onset_list = ONSET_TYPES.get('unset')
+            STATIONS[station_code]['arrivals'][phase]['weight'] = onset_list[0]
+            STATIONS[station_code]['arrivals'][phase]['quality'] = onset_list[0]
+            STATIONS[station_code]['arrivals'][phase]['onsetType'] = onset_list[1]
+
+            STATIONS[station_code]['arrivals'][phase]['time'] = convert_seiscomp_time_to_shm_time(pick_element.find('pickID').text, False)
+
+        STATIONS[station_code]['arrivals'][phase]['used_for_calculation'] = "Yes"
+        timeUsed = arrival.find('timeUsed').text
+        if timeUsed == 'false':
+            onset_list = ONSET_TYPES.get('none')
+            STATIONS[station_code]['arrivals'][phase]['used_for_calculation'] = "No"
+            STATIONS[station_code]['arrivals'][phase]['weight'] = onset_list[0]
+            STATIONS[station_code]['arrivals'][phase]['quality'] =  onset_list[0]
+            STATIONS[station_code]['arrivals'][phase]['onsetType'] = onset_list[1]
 
 #station ლექსიკონში მაგნიტუდების შევსება
 def calculated_magnitudes():
@@ -427,6 +450,14 @@ def generate_stations_magnitudes():
             generate_input(stw + 'quality', STATIONS[station_code]["arrivals"][phase_name]['quality'])
             generate_input(stw + 'weight', STATIONS[station_code]["arrivals"][phase_name]['weight'])
             generate_input(stw + 'used_for_calculation', STATIONS[station_code]["arrivals"][phase_name]['used_for_calculation'])
+            if 'compLength' in STATIONS[station_code]["arrivals"][phase_name]:
+                generate_input(stw + 'compLength', str(STATIONS[station_code]["arrivals"][phase_name]['compLength']))
+                comp_index = 0
+                for comp in STATIONS[station_code]["arrivals"][phase_name]['comps']:
+                    comp_num_str = stw + 'comp' + str(comp_index) + '_'
+                    generate_input(comp_num_str + 'name', comp[0])
+                    generate_input(comp_num_str + 'sign', comp[1])
+                    comp_index += 1
             arrival_index += 1
 
         generate_input(st + 'waveLength', len(STATIONS[station_code]["arrivals"]))
