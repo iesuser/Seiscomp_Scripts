@@ -38,7 +38,7 @@ WAVE_TYPES = {'P':'Px', 'S': 'Sx'}
 
 MAGNITUDE_TYPES = {'MLv':'mlv', 'MLh':'mlh', 'mb':'mb', 'ML':'ml', 'M':'M' }
 
-ONSET_TYPES = {'impulsive': [0, 'i'], 'emergent': [1, 'e'], 'unset': [2, 'e'], 'questionable': [3, 'e'], 'none': [4,'']}
+ONSET_TYPES = {'impulsive': [0, 'i'], 'emergent': [1, 'e'], 'unset': [2, 'e'], 'questionable': [3, 'e'], 'none': [4,'e']}
 
 POLARITY_TYPES = {'positive': '+', 'negative': '-', 'undecidable': ''}
 
