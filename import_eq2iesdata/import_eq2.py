@@ -34,7 +34,8 @@ KILOMETER_DEVIDED_DEGREE_RATIO = 111.19492664455873
 
 # იქმნება dictionary-ები, რომლებიც სეისკომპში არსებულ მონაცამებს გადათარგმნის ისეთ მონაცემებად, რომელსაც სერვერზე php სკრიპტი წაიკითხავს
 SOFTWARE_NAMES = {'LOCSAT':'LocSAT(Seiscomp)'}
-WAVE_TYPES = {'P':'Px', 'S': 'Sx'}
+WAVE_TYPES = {'P':'Pg', 'S': 'Sg'}
+WAVE_TYPES_ABOVE_100_KM = {'Pg': 'Px', 'Sg': 'Sx','P':'Px', 'S': 'Sx'}
 
 MAGNITUDE_TYPES = {'MLv':'mlv', 'MLh':'mlh', 'mb':'mb', 'ML':'ml', 'M':'M' }
 
@@ -126,17 +127,17 @@ def picked_earthquake_origin():
 
     #გასარკვევია 
     # if origin_element.find('uncertainty').find('minHorizontalUncertainty') is not None:
-    # 	min_horizontal_ancertaint = origin_element.find('uncertainty').find('minHorizontalUncertainty').text
-    # 	max_horizontal_ancertaint = origin_element.find('uncertainty').find('maxHorizontalUncertainty').text
-    # 	avarage = float(min_horizontal_ancertaint) + float(max_horizontal_ancertaint) / 2
-    # 	avarage1 = math.sqrt((float(min_horizontal_ancertaint) * 2 ) + (float(max_horizontal_ancertaint) * 2 ))
-    # 	print('aris')
-    # 	print('min_horizontal_ancertainty : ',origin_element.find('uncertainty').find('minHorizontalUncertainty').text)
-    # 	print('max_horizontal_ancertainty : ',origin_element.find('uncertainty').find('maxHorizontalUncertainty').text)
-    # 	print(avarage)
-    # 	print(avarage1)
+    #   min_horizontal_ancertaint = origin_element.find('uncertainty').find('minHorizontalUncertainty').text
+    #   max_horizontal_ancertaint = origin_element.find('uncertainty').find('maxHorizontalUncertainty').text
+    #   avarage = float(min_horizontal_ancertaint) + float(max_horizontal_ancertaint) / 2
+    #   avarage1 = math.sqrt((float(min_horizontal_ancertaint) * 2 ) + (float(max_horizontal_ancertaint) * 2 ))
+    #   print('aris')
+    #   print('min_horizontal_ancertainty : ',origin_element.find('uncertainty').find('minHorizontalUncertainty').text)
+    #   print('max_horizontal_ancertainty : ',origin_element.find('uncertainty').find('maxHorizontalUncertainty').text)
+    #   print(avarage)
+    #   print(avarage1)
     # else:
-    # 	print('ar aris')
+    #   print('ar aris')
 
 
 
@@ -158,7 +159,7 @@ def convert_seiscomp_time_to_shm_time(time, manual_pick=True):
         return result
     seiscomp_msec = time[20:23]
     seiscomp_msec_splited = seiscomp_msec.split('Z')
-    a = seiscomp_msec_splited[0]	
+    a = seiscomp_msec_splited[0]    
     year = time[:4]
     day = time[8:10]
     month = time[5:7]
@@ -181,39 +182,39 @@ def convert_magnitude_name(magnitude):
     return None
 
 def get_eq_min_max_value(magnitude_type):
-	mag_min_value = mag_max_value = None
-	magnitude_values = []
-	for key, station in STATIONS.items():
-		if 'magnitudes' in station and magnitude_type in station['magnitudes']:
-			for mag_type, mag_value in station['magnitudes'][magnitude_type].items():
-				magnitude_values.append(float(mag_value))
-	if magnitude_values:
-		mag_min_value = min(magnitude_values)
-		mag_max_value = max(magnitude_values)
+    mag_min_value = mag_max_value = None
+    magnitude_values = []
+    for key, station in STATIONS.items():
+        if 'magnitudes' in station and magnitude_type in station['magnitudes']:
+            for mag_type, mag_value in station['magnitudes'][magnitude_type].items():
+                magnitude_values.append(float(mag_value))
+    if magnitude_values:
+        mag_min_value = min(magnitude_values)
+        mag_max_value = max(magnitude_values)
 
-	return mag_min_value, mag_max_value
+    return mag_min_value, mag_max_value
 
 # stations ლექსიკონიდან station_code სადგურისთვის პპოულობს ისეთ ტალღებს რომლებმაც დათვლაში მიიღეს მონაწილეობა
 # და აბრუნებს დროის გადახრას (timeResidual) p და s ტიპის ტალღებისთვის
 def get_wave_time_residuals(station_code):
-	p_wave_time_residual = None
-	s_wave_time_residual = None
+    p_wave_time_residual = None
+    s_wave_time_residual = None
 
-	for wave_type in STATIONS[station_code]['arrivals']:
-		if wave_type[:1].lower() == 'p' and int(STATIONS[station_code]['arrivals'][wave_type]['weight']) != 4 \
-		and 'timeResidual' in STATIONS[station_code]['arrivals'][wave_type].keys():
-			p_wave_time_residual = STATIONS[station_code]['arrivals'][wave_type]['timeResidual']
-		if wave_type[:1].lower() == 's' and int(STATIONS[station_code]['arrivals'][wave_type]['weight']) != 4 \
-		and 'timeResidual' in STATIONS[station_code]['arrivals'][wave_type].keys():	
-			s_wave_time_residual = STATIONS[station_code]['arrivals'][wave_type]['timeResidual']
+    for wave_type in STATIONS[station_code]['arrivals']:
+        if wave_type[:1].lower() == 'p' and int(STATIONS[station_code]['arrivals'][wave_type]['weight']) != 4 \
+        and 'timeResidual' in STATIONS[station_code]['arrivals'][wave_type].keys():
+            p_wave_time_residual = STATIONS[station_code]['arrivals'][wave_type]['timeResidual']
+        if wave_type[:1].lower() == 's' and int(STATIONS[station_code]['arrivals'][wave_type]['weight']) != 4 \
+        and 'timeResidual' in STATIONS[station_code]['arrivals'][wave_type].keys(): 
+            s_wave_time_residual = STATIONS[station_code]['arrivals'][wave_type]['timeResidual']
 
-	if p_wave_time_residual is not None:
-		p_wave_time_residual = round(float(p_wave_time_residual), 2)
+    if p_wave_time_residual is not None:
+        p_wave_time_residual = round(float(p_wave_time_residual), 2)
 
-	if s_wave_time_residual is not None:
-		s_wave_time_residual = round(float(s_wave_time_residual), 2)
+    if s_wave_time_residual is not None:
+        s_wave_time_residual = round(float(s_wave_time_residual), 2)
 
-	return p_wave_time_residual, s_wave_time_residual
+    return p_wave_time_residual, s_wave_time_residual
 
 # ფუნქცია აგენერირებს input-ებს მიწოდებული name(სახელი) და value(მნიშვნელობა) მნიშვნელობებით
 def generate_input(name, value, func_name='generate_input'):
@@ -222,7 +223,7 @@ def generate_input(name, value, func_name='generate_input'):
 
 # ფუნქცია xml-ს გაპარსავს, ხოლო შემდგომ დააგენერირებს input-ებს generate_input ფუნქციის გამოყენებით
 def smart_generate_input(name, element,first_child, second_child, round_number = None, convert_time_format = False):
-	# xml-ს გაპარსვა სასურველი მონაცემების გამოყენებით
+    # xml-ს გაპარსვა სასურველი მონაცემების გამოყენებით
     if element.find(first_child) is not None and element.find(first_child).find(second_child) is not None:
         value = element.find(first_child).find(second_child).text
         if round_number is not None:
@@ -269,7 +270,7 @@ def picked_stations():
     arrivals = origin_element.findall('arrival')
     for arrival in arrivals:
         pick_id = arrival.find('pickID').text
-        
+
         if pick_id.startswith('Pick'):
             manual_picked = True
             pick_element = eventParameters_element.find(f"*[@publicID='{pick_id}']")
@@ -294,15 +295,22 @@ def picked_stations():
             STATIONS[station_code]['arrivals'] = {}
 
         #წავიკითხოთ ტალღის სახელი
-        phase = arrival.find('phase').text
-
-        for key, value in WAVE_TYPES.items():
-            if key.lower() == phase.lower():
-                phase = value
                 
         STATIONS[station_code]['azimuth'] = round(float(arrival.find('azimuth').text), 3)
         #+სადგურებიდან მანძილი გადადის გრადუსიდან კილომეტრში და ისე ხდება მნიშვნელობის შენახვა
         STATIONS[station_code]['distance'] = round(float(arrival.find('distance').text) * KILOMETER_DEVIDED_DEGREE_RATIO, 3)
+
+        phase = arrival.find('phase').text
+
+        if STATIONS[station_code]['distance'] > 100:
+            for key, value in WAVE_TYPES_ABOVE_100_KM.items():
+                if key.lower() == phase.lower():
+                    phase = value
+        else:
+            for key, value in WAVE_TYPES.items():
+                if key.lower() == phase.lower():
+                    phase = value
+
         STATIONS[station_code]['arrivals'][phase] = {}
 
         #გასარკვევია როგორ გადავა iesdata-ზე 
@@ -371,7 +379,7 @@ def calculated_magnitudes():
             magnitude_type = convert_magnitude_name(stations_magnitude.find('type').text)
             if 'magnitudes' not in STATIONS[station_code]:
                 STATIONS[station_code]['magnitudes'] = {}
-            if 	magnitude_type not in STATIONS[station_code]['magnitudes']:
+            if  magnitude_type not in STATIONS[station_code]['magnitudes']:
                 STATIONS[station_code]['magnitudes'][magnitude_type] = {}
             # print(magnitude_type)
             # print(magnitude.find('magnitude').find('value').text)
@@ -415,7 +423,7 @@ def generate_stations_magnitudes():
         if p_wave_time_residual is not None:
             generate_input(st + "residual_origin_time_p", p_wave_time_residual)
         if s_wave_time_residual is not None:
-            generate_input(st + "residual_origin_time_s", s_wave_time_residual)	
+            generate_input(st + "residual_origin_time_s", s_wave_time_residual) 
         if p_wave_time_residual is not None or s_wave_time_residual is not None:
             generate_input(st + "used_for_calculation", 'Yes')
         else:
@@ -433,14 +441,14 @@ def generate_stations_magnitudes():
                     generate_input(stm + "residual", STATIONS[station_code]['magnitudes'][magnitude_type]['residual'])
                 if 'amplitude' in STATIONS[station_code]['magnitudes'][magnitude_type]:
                     pass
-                    # print('yes')	
+                    # print('yes')  
                 mag_index += 1 
         #+ input-ის გენრაცია მაშინ როცა magnitude-ს ლექსიკონი არსებობს 
-        if 'magnitudes' in 	STATIONS[station_code]:
+        if 'magnitudes' in  STATIONS[station_code]:
             generate_input(st + "magLength" , len(STATIONS[station_code]['magnitudes']))
             
 
-        #სადგურის ტალღების inpute-ების დაგენერირება 		
+        #სადგურის ტალღების inpute-ების დაგენერირება         
         arrival_index = 0
         for phase_name in STATIONS[station_code]["arrivals"]:
             stw = st + 'wave' + str(arrival_index) + '_'
@@ -489,6 +497,7 @@ if __name__ == '__main__':
     calculated_magnitudes()
     generate_magnitudes_input()
     generate_stations_magnitudes()
+    print(STATIONS)
     generate_html()
 
     # print(STATIONS)
