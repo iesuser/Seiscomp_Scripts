@@ -39,7 +39,7 @@ shakemap/
 
 1. Navigate to the shakemap directory:
 ```bash
-cd /home/giorgi-chakhnashvili/Desktop/shakemap
+cd /path/to/shakemap
 ```
 
 2. Run the automated setup script:
@@ -63,7 +63,7 @@ This will:
 Before using any commands, activate the Python virtual environment created during setup:
 
 ```bash
-cd /home/giorgi-chakhnashvili/Desktop/shakemap
+cd /path/to/shakemap
 source venv/bin/activate
 ```
 
@@ -224,7 +224,7 @@ python main.py -m downloads
 ### Example 2: Analyze Specific Earthquake Catalog
 ```bash
 source venv/bin/activate
-python main.py -m batch -d ~/Downloads/shakemaps/ies2026cjfc -o results/cjfc_analysis
+python main.py -m batch -d ~/Downloads/shakemaps_input/ies2026cjfc -o results/cjfc_analysis
 ```
 
 ### Example 3: Generate and Analyze Synthetic Catalog

@@ -4,7 +4,7 @@
 
 ### Step 1: Install & Setup (1 minute)
 ```bash
-cd /home/giorgi-chakhnashvili/Desktop/shakemap
+cd /path/to/shakemap
 chmod +x setup.sh
 ./setup.sh
 ```
@@ -21,7 +21,7 @@ This script will:
 
 After setup completes, activate the virtual environment:
 ```bash
-cd /home/giorgi-chakhnashvili/Desktop/shakemap
+cd /path/to/shakemap
 source venv/bin/activate     # Note: Do this every time you use the system
 ```
 
@@ -64,7 +64,11 @@ This automatically finds and processes all earthquakes in your Downloads folder.
 ### Task 2: Process a Specific Event
 ```bash
 source venv/bin/activate
-python main.py -m batch -d /home/giorgi-chakhnashvili/Downloads/shakemaps/ies2026cjfc
+python main.py -m batch -d /path/to/shakemap/shakemaps_input/ies2026cjfc
+
+#OR
+
+python main.py -m batch -d /path/to/shakemap/shakemaps_input/ #for many events
 ```
 
 ### Task 3: Analyze a Catalog
