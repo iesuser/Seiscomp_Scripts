@@ -6,7 +6,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from typing import List
 from datetime import datetime
-from earthquake_data import EarthquakeEvent
+from shakemap.earthquake_data import EarthquakeEvent
 
 
 class EarthquakeAnalysis:

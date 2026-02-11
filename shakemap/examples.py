@@ -4,8 +4,8 @@ Example usage scripts for the Earthquake ShakeMap System.
 
 # EXAMPLE 1: Load and analyze a single earthquake event
 def example_single_event():
-    from earthquake_data import EarthquakeXMLParser
-    from shakemap_generator import ShakeMapGenerator
+    from shakemap.earthquake_data import EarthquakeXMLParser
+    from shakemap.shakemap_generator import ShakeMapGenerator
     
     # Load earthquake event
     event = EarthquakeXMLParser.parse_event_xml('example_data/example_events/example_001.xml')
@@ -24,8 +24,8 @@ def example_single_event():
 # EXAMPLE 2: Batch process all example events
 def example_batch_process():
     from pathlib import Path
-    from earthquake_data import EarthquakeXMLParser
-    from shakemap_generator import ShakeMapGenerator, compare_earthquakes
+    from shakemap.earthquake_data import EarthquakeXMLParser
+    from shakemap.shakemap_generator import ShakeMapGenerator, compare_earthquakes
     
     # Load all example events
     events = []
@@ -48,8 +48,8 @@ def example_batch_process():
 # EXAMPLE 3: Statistical analysis of earthquake catalog
 def example_statistics():
     from pathlib import Path
-    from earthquake_data import EarthquakeXMLParser
-    from analysis import EarthquakeAnalysis
+    from shakemap.earthquake_data import EarthquakeXMLParser
+    from shakemap.analysis import EarthquakeAnalysis
     
     # Load all events
     events = []
@@ -89,8 +89,8 @@ def example_synthetic_catalog():
 # EXAMPLE 5: Create custom earthquake event
 def example_custom_event():
     from datetime import datetime
-    from earthquake_data import EarthquakeEvent, EarthquakeXMLParser
-    from shakemap_generator import ShakeMapGenerator
+    from shakemap.earthquake_data import EarthquakeEvent, EarthquakeXMLParser
+    from shakemap.shakemap_generator import ShakeMapGenerator
     
     # Create custom event
     event = EarthquakeEvent(
@@ -121,8 +121,8 @@ def example_custom_event():
 
 # EXAMPLE 6: Advanced ShakeMap customization
 def example_advanced_shakemap():
-    from earthquake_data import EarthquakeXMLParser
-    from shakemap_generator import ShakeMapGenerator
+    from shakemap.earthquake_data import EarthquakeXMLParser
+    from shakemap.shakemap_generator import ShakeMapGenerator
     
     event = EarthquakeXMLParser.parse_event_xml('example_data/example_events/example_002.xml')
     
@@ -148,8 +148,8 @@ def example_advanced_shakemap():
 
 # EXAMPLE 7: Direct comparison of specific events
 def example_specific_comparison():
-    from earthquake_data import EarthquakeXMLParser
-    from shakemap_generator import compare_earthquakes
+    from shakemap.earthquake_data import EarthquakeXMLParser
+    from shakemap.shakemap_generator import compare_earthquakes
     
     # Load specific events
     event1 = EarthquakeXMLParser.parse_event_xml('example_data/example_events/example_001.xml')

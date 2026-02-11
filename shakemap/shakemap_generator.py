@@ -9,7 +9,7 @@ from matplotlib.colors import LinearSegmentedColormap
 import folium
 from folium.plugins import HeatMap, MarkerCluster
 from typing import Tuple, List, Optional
-from earthquake_data import EarthquakeEvent, calculate_distance, calculate_magnitude_at_distance
+from shakemap.earthquake_data import EarthquakeEvent, calculate_distance, calculate_magnitude_at_distance
 
 
 class ShakeMapGenerator:

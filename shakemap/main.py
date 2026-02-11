@@ -6,8 +6,8 @@ import os
 import sys
 import argparse
 from pathlib import Path
-from earthquake_data import EarthquakeXMLParser, EarthquakeEvent
-from shakemap_generator import ShakeMapGenerator, compare_earthquakes
+from shakemap.earthquake_data import EarthquakeXMLParser, EarthquakeEvent
+from shakemap.shakemap_generator import ShakeMapGenerator, compare_earthquakes
 from generate_example_data import create_example_dataset
 
 
