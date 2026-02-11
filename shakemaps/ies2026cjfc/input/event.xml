@@ -1,3 +1,0 @@
-<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<!DOCTYPE earthquake SYSTEM "earthquake.dtd">
-<earthquake id="ies2026cjfc" lat="41.074" lon="43.8527" depth="0" mag="2.15719" year="2026" month="2" day="3" hour="11" minute="52"  second="2" timezone="GMT" locstring="ies2026cjfc / 41.074024200439453 / 43.85272216796875" created="1770125698"/>
