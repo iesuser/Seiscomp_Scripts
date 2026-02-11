@@ -6,6 +6,5 @@ __pycache__/
 *.sqlite
 /logs/
 .env
-*.xml
 *.log
 *.html

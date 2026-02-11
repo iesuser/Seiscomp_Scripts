@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<!DOCTYPE earthquake SYSTEM "stationlist.dtd">
+<stationlist created="" xmlns="ch.ethz.sed.shakemap.usgs.xml">
+  <station code="EMLK" name="EMLK" netid="GO" source="GNSMC" insttype="" commtype="DIG" lat="41.2128" lon="43.9515">
+    <comp name="20.HNN">
+      <acc value="0.0091243584" flag="0"/>
+      <vel value="0.0015184206" flag="0"/>
+      <psa03 value="0.0027880924" flag="0"/>
+      <psa10 value="0.0002013867" flag="0"/>
+      <psa30 value="0.0000320706" flag="0"/>
+    </comp>
+    <comp name="20.HNZ">
+      <acc value="0.0069815713" flag="0"/>
+      <vel value="0.0012103454" flag="0"/>
+      <psa03 value="0.0025915469" flag="0"/>
+      <psa10 value="0.0001825534" flag="0"/>
+      <psa30 value="0.0000331043" flag="0"/>
+    </comp>
+    <comp name="20.HNE">
+      <acc value="0.0250581447" flag="0"/>
+      <vel value="0.0041411545" flag="0"/>
+      <psa03 value="0.0085216915" flag="0"/>
+      <psa10 value="0.0004484998" flag="0"/>
+      <psa30 value="0.0000722353" flag="0"/>
+    </comp>
+  </station>
+  <station code="MZEG" name="MZEG" netid="GO" source="GNSMC" insttype="" commtype="DIG" lat="41.789" lon="43.534">
+    <comp name="10.HNN">
+      <acc value="0.0004874287" flag="0"/>
+      <vel value="0.0000522265" flag="0"/>
+      <psa03 value="0.0002210195" flag="0"/>
+      <psa10 value="0.0000392946" flag="0"/>
+      <psa30 value="0.0000263777" flag="0"/>
+    </comp>
+    <comp name="10.HNZ">
+      <acc value="0.0003509964" flag="0"/>
+      <vel value="0.0000575304" flag="0"/>
+      <psa03 value="0.0001890681" flag="0"/>
+      <psa10 value="0.0000379683" flag="0"/>
+      <psa30 value="0.0000301220" flag="0"/>
+    </comp>
+    <comp name="10.HNE">
+      <acc value="0.0004918351" flag="0"/>
+      <vel value="0.0000676625" flag="0"/>
+      <psa03 value="0.0002977261" flag="0"/>
+      <psa10 value="0.0000404426" flag="0"/>
+      <psa30 value="0.0000282509" flag="0"/>
+    </comp>
+  </station>
+  <station code="TRLT" name="TRLT" netid="GO" source="GNSMC" insttype="" commtype="DIG" lat="41.5695" lon="44.1546">
+    <comp name="20.HNZ">
+      <acc value="0.0008181024" flag="0"/>
+      <vel value="0.0001123595" flag="0"/>
+      <psa03 value="0.0002028960" flag="0"/>
+      <psa10 value="0.0000453447" flag="0"/>
+      <psa30 value="0.0000275648" flag="0"/>
+    </comp>
+    <comp name="20.HNE">
+      <acc value="0.0009839999" flag="0"/>
+      <vel value="0.0001694120" flag="0"/>
+      <psa03 value="0.0008580750" flag="0"/>
+      <psa10 value="0.0000447326" flag="0"/>
+      <psa30 value="0.0000244541" flag="0"/>
+    </comp>
+    <comp name="20.HNN">
+      <acc value="0.0008613663" flag="0"/>
+      <vel value="0.0001223350" flag="0"/>
+      <psa03 value="0.0006185658" flag="0"/>
+      <psa10 value="0.0000308643" flag="0"/>
+      <psa30 value="0.0000269820" flag="0"/>
+    </comp>
+  </station>
+</stationlist>
