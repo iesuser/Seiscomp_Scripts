@@ -317,3 +317,6 @@ This project is created for educational and research purposes.
 ## Support
 
 For issues or questions about the shakemap system, please contact IT support at the seismology institute.
+
+# Seiscomp_Scripts
+Custom scripts for seiscomp
