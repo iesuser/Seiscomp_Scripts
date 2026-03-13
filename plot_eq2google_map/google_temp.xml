@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<seiscomp xmlns="http://geofon.gfz-potsdam.de/ns/seiscomp3-schema/0.13" version="0.13">
+  <EventParameters>
+    <origin publicID="Origin/20250326073136.679084.6280">
+      <time>
+        <value>2025-03-26T04:51:28.220531Z</value>
+        <uncertainty>1.781803011894226</uncertainty>
+      </time>
+      <latitude>
+        <value>41.54891586303711</value>
+        <uncertainty>15.849342346191406</uncertainty>
+      </latitude>
+      <longitude>
+        <value>44.51198959350586</value>
+        <uncertainty>5.264002799987793</uncertainty>
+      </longitude>
+      <depth>
+        <value>113.13506317138672</value>
+        <uncertainty>21.135482788085938</uncertainty>
+      </depth>
+      <methodID>LOCSAT</methodID>
+      <earthModelID>iasp91</earthModelID>
+      <quality>
+        <associatedPhaseCount>11</associatedPhaseCount>
+        <usedPhaseCount>11</usedPhaseCount>
+        <associatedStationCount>11</associatedStationCount>
+        <usedStationCount>11</usedStationCount>
+        <depthPhaseCount>0</depthPhaseCount>
+        <standardError>5.096922282890565</standardError>
+        <azimuthalGap>157.5693130493164</azimuthalGap>
+        <maximumDistance>1.59122371673584</maximumDistance>
+        <minimumDistance>0.26903876662254333</minimumDistance>
+        <medianDistance>0.8187549710273743</medianDistance>
+      </quality>
+      <uncertainty>
+        <minHorizontalUncertainty>10.819969177246094</minHorizontalUncertainty>
+        <maxHorizontalUncertainty>34.66549301147461</maxHorizontalUncertainty>
+        <azimuthMaxHorizontalUncertainty>6.511235237121582</azimuthMaxHorizontalUncertainty>
+        <preferredDescription>horizontal uncertainty</preferredDescription>
+      </uncertainty>
+      <evaluationMode>manual</evaluationMode>
+      <evaluationStatus>confirmed</evaluationStatus>
+      <creationInfo>
+        <agencyID>GNSMC</agencyID>
+        <author>scolv@grigala</author>
+        <creationTime>2025-03-26T07:31:36.679383Z</creationTime>
+        <modificationTime>2025-03-26T07:31:41.211636Z</modificationTime>
+      </creationInfo>
+      <magnitude publicID="Origin/20250326073136.679084.6280/netMag/M">
+        <magnitude>
+          <value>1.7549180029704097</value>
+        </magnitude>
+        <type>M</type>
+        <methodID>weighted average</methodID>
+        <stationCount>9</stationCount>
+        <creationInfo>
+          <agencyID>GNSMC</agencyID>
+          <author>scmag@grigala</author>
+          <creationTime>2025-03-26T07:31:39.851446Z</creationTime>
+        </creationInfo>
+      </magnitude>
+    </origin>
+    <event publicID="grg2025fxvw">
+      <preferredOriginID>Origin/20250326073136.679084.6280</preferredOriginID>
+      <preferredMagnitudeID>Origin/20250326073136.679084.6280/netMag/M</preferredMagnitudeID>
+      <creationInfo>
+        <agencyID>GNSMC</agencyID>
+        <author>scevent@grigala</author>
+        <creationTime>2025-03-26T06:38:44.860573Z</creationTime>
+        <modificationTime>2025-03-26T07:31:39.918277Z</modificationTime>
+      </creationInfo>
+      <description>
+        <text>Northwestern Caucasus</text>
+        <type>region name</type>
+      </description>
+      <originReference>Origin/20250326073136.679084.6280</originReference>
+    </event>
+  </EventParameters>
+</seiscomp>
