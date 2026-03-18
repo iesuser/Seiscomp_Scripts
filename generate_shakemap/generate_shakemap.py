@@ -23,7 +23,6 @@ LOGS_DIR_PATH = SCRIPT_PATH + "/logs"
 if not os.path.isdir(LOGS_DIR_PATH):
     os.mkdir(LOGS_DIR_PATH)
 
-
 # xml-ის და html-ის მისამართები, ასევე ბრაუზერი, რომლითან გახსნის html-ს 
 XML_PATH = TEMP_DIR_PATH + "/eq_log.xml"
 
@@ -42,18 +41,16 @@ logger = logging.getLogger()
 logger.setLevel(logging.DEBUG)
 logger.addHandler(rotating_handler)
 
-
 # safe helper: script is sometimes called without the event_id argument
 def get_event_id_from_argv():
     return sys.argv[2] if len(sys.argv) > 2 else None
-
 
 # ეს ფუნქცია პასუხისმგებელია xml-ის დაგენერირებაზე სეისკომპიდან გადმოცემული event_id-ით
 def xml_dump(xml_path, event_id, server_ip):
     # seiscomp exec scxmldump -AMp -o /home/sysop/Code/Seiscomp_Scripts/generate_shakemap/temp/eq_log.xml -E ies2026duod -d localhost
     command = f'seiscomp exec scxmldump -AMp -o {xml_path} -E {event_id} -d {server_ip}'
     try:
-        subprocess.run(command, check=True, shell=True )
+        subprocess.run(command, check=True, shell=True)
         logging.debug(f'<xml_dump - xml წარმატებით დაგენერირდა>')
     except subprocess.CalledProcessError as e:
         # print("Error:", e)
@@ -104,15 +101,16 @@ def parse_downloaded_xml(xml_path):
     
     return parsed_origin
 
-
 def run_sm_create(parsed_origin):
     required_fields = ["event_id", "time", "longitude", "latitude", "magnitude"]
     missing_fields = [field for field in required_fields if parsed_origin.get(field) in (None, "")]
     if missing_fields:
         raise ValueError(f"sm_create-სთვის აუცილებელი ველები აკლია: {', '.join(missing_fields)}")
 
-    command = (
-        f'sm_create {parsed_origin["event_id"]} '
+    event_id = parsed_origin["event_id"]
+
+    sm_create_cmd = (
+        f'sm_create {event_id} '
         f'-e ies '
         f'{parsed_origin["time"]} '
         f'{parsed_origin["longitude"]} '
@@ -122,18 +120,24 @@ def run_sm_create(parsed_origin):
         f'" " -n'
     )
 
-    print(command)
+    shake_cmd = f'shake {event_id} select assemble model contour mapping'
+
+    print(sm_create_cmd)
+    print(shake_cmd)
+
     conda_exe = os.environ.get("CONDA_EXE", "conda")
     bash_command = (
         f'eval "$({shlex.quote(conda_exe)} shell.bash hook)" '
         f'&& conda activate shakemap '
-        f'&& {command}'
+        f'&& {sm_create_cmd} '
+        f'&& {shake_cmd}'
     )
+
     subprocess.run(["/bin/bash", "-lc", bash_command], check=True)
-    print(f'sm_create წარმატებით გაეშვა event_id={parsed_origin["event_id"]}')
-    logging.info("sm_create წარმატებით გაეშვა event_id=%s", parsed_origin["event_id"])
 
-
+    print(f'ShakeMap სრულად გაეშვა event_id={event_id}')
+    logging.info("ShakeMap სრულად გაეშვა event_id=%s", event_id)
+    
 if __name__ == '__main__':
     # 1) XML ფაილის დაგენერირება სეისკომპიდან scxmldump-ის გამოყენებით .
     event_id = get_event_id_from_argv()
