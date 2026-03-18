@@ -2,6 +2,7 @@
 import os
 import sys
 import re
+import shlex
 import xml.etree.ElementTree as ET
 import subprocess
 
@@ -110,21 +111,26 @@ def run_sm_create(parsed_origin):
     if missing_fields:
         raise ValueError(f"sm_create-სთვის აუცილებელი ველები აკლია: {', '.join(missing_fields)}")
 
-    command = [
-        "sm_create",
-        parsed_origin["event_id"],
-        "-e",
-        "ies",
-        parsed_origin["time"],
-        parsed_origin["longitude"],
-        parsed_origin["latitude"],
-        parsed_origin["magnitude"],
-        " ",
-        "-n",
-    ]
+    command = (
+        f'sm_create {parsed_origin["event_id"]} '
+        f'-e ies '
+        f'{parsed_origin["time"]} '
+        f'{parsed_origin["longitude"]} '
+        f'{parsed_origin["latitude"]} '
+        f'{parsed_origin["depth_km"]} '
+        f'{parsed_origin["magnitude"]} '
+        f'" " -n'
+    )
 
     print(command)
-    subprocess.run(command, check=True)
+    conda_exe = os.environ.get("CONDA_EXE", "conda")
+    bash_command = (
+        f'eval "$({shlex.quote(conda_exe)} shell.bash hook)" '
+        f'&& conda activate shakemap '
+        f'&& {command}'
+    )
+    subprocess.run(["/bin/bash", "-lc", bash_command], check=True)
+    print(f'sm_create წარმატებით გაეშვა event_id={parsed_origin["event_id"]}')
     logging.info("sm_create წარმატებით გაეშვა event_id=%s", parsed_origin["event_id"])
 
 
@@ -140,7 +146,7 @@ if __name__ == '__main__':
 
     try:
         parsed_origin = parse_downloaded_xml(XML_PATH)
-        # print(parsed_origin)
+        print(parsed_origin)
         run_sm_create(parsed_origin)
     except Exception as exc:
         logging.critical(f'XML parse შეცდომა: {exc}')
