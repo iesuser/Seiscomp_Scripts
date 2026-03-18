@@ -59,6 +59,11 @@ def xml_dump(xml_path, event_id, server_ip):
         logging.critical(f'<xml_dump - xml-ის დაგენერირების დროს დაფიქსირდა შეცდომა: {e}>')
         sys.exit(1)
 
+def to_float(value):
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
 def parse_downloaded_xml(xml_path):
     with open(xml_path, "r", encoding="utf-8") as xml_file:
@@ -74,18 +79,53 @@ def parse_downloaded_xml(xml_path):
     if event_parameters_element is None:
         raise ValueError("XML-ში EventParameters ტეგი ვერ მოიძებნა")
 
+    event_element = event_parameters_element.find('event')
+    if event_element is None:
+        raise ValueError("XML-ში event ტეგი ვერ მოიძებნა")
+
     origin_element = event_parameters_element.find('origin')
     if origin_element is None:
         raise ValueError("XML-ში origin ტეგი ვერ მოიძებნა")
 
+    mag = to_float(origin_element.findtext("magnitude/magnitude/value"))
+    depth = to_float(origin_element.findtext("depth/value"))
+    lat = to_float(origin_element.findtext("latitude/value"))
+    lon = to_float(origin_element.findtext("longitude/value"))
+
     parsed_origin = {
-        "publicID": origin_element.attrib.get("publicID"),
+        "event_id": event_element.attrib.get("publicID"),
         "time": origin_element.findtext("time/value"),
-        "latitude": origin_element.findtext("latitude/value"),
-        "longitude": origin_element.findtext("longitude/value"),
-        "depth_km": origin_element.findtext("depth/value"),
+        "longitude": round(lon, 5) if lon is not None else None,
+        "latitude": round(lat, 5) if lat is not None else None,
+        "depth_km": round(depth, 1) if depth is not None else None,
+        "magnitude": round(mag, 3) if mag is not None else None,
     }
+    
     return parsed_origin
+
+
+def run_sm_create(parsed_origin):
+    required_fields = ["event_id", "time", "longitude", "latitude", "magnitude"]
+    missing_fields = [field for field in required_fields if parsed_origin.get(field) in (None, "")]
+    if missing_fields:
+        raise ValueError(f"sm_create-სთვის აუცილებელი ველები აკლია: {', '.join(missing_fields)}")
+
+    command = [
+        "sm_create",
+        parsed_origin["event_id"],
+        "-e",
+        "ies",
+        parsed_origin["time"],
+        parsed_origin["longitude"],
+        parsed_origin["latitude"],
+        parsed_origin["magnitude"],
+        " ",
+        "-n",
+    ]
+
+    print(command)
+    subprocess.run(command, check=True)
+    logging.info("sm_create წარმატებით გაეშვა event_id=%s", parsed_origin["event_id"])
 
 
 if __name__ == '__main__':
@@ -100,7 +140,8 @@ if __name__ == '__main__':
 
     try:
         parsed_origin = parse_downloaded_xml(XML_PATH)
-        print(parsed_origin)
+        # print(parsed_origin)
+        run_sm_create(parsed_origin)
     except Exception as exc:
         logging.critical(f'XML parse შეცდომა: {exc}')
         sys.exit(1)
