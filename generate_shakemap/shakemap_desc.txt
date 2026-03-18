@@ -1,0 +1,79 @@
+როგორც კი მიწისძვრა დაფიქსირდება — ეს კოდი ავტომატურად ამზადებს ShakeMap-ს
+
+ავტომატურად გადააქციოს SeisComP-ში დაფიქსირებული მიწისძვრა ShakeMap event-ად
+
+➡️ SeisComP (raw seismic data)
+→ ➡️ სტრუქტურირებული მონაცემი (XML)
+→ ➡️ გაწმენდილი/დამუშავებული პარამეტრები
+→ ➡️ ShakeMap (sm_create)
+
+SeisComP-დან იღებს კონკრეტული მიწისძვრის ინფორმაციას (event_id-ით)
+
+SeisComP (Detection)
+        ↓
+   scxmldump
+        ↓
+      XML
+        ↓
+   Python Script (შენი კოდი)
+        ↓
+   sm_create
+        ↓
+   ShakeMap (Maps, intensity)
+
+
+========================
+კოდის არქიტექტურა (მთავარი)
+========================
+
+ამ სკრიპტის არქიტექტურა არის „pipeline“ (მონაცემთა ნაკადი) + „adapter“ (გარე სისტემებთან ინტეგრაცია).
+იდეა მარტივია: ერთ სისტემაში (SeisComP) არსებული event უნდა გადავიყვანოთ მეორე სისტემისთვის (ShakeMap) გასაგებ event-ად.
+
+მთავარი კომპონენტები:
+- **Input (SeisComP event_id)**: სკრიპტი იწყებს მუშაობას კონკრეტული `event_id`-ით.
+  - რატომ: ShakeMap-ს უნდა ვუთხრათ რომელი მოვლენა უნდა შეიქმნას; SeisComP-ში იდენტიფიკაცია ხდება სწორედ `event_id`-ით.
+
+- **Data acquisition layer (XML dump)**: `scxmldump` გამოაქვს event-ის XML და ინახავს `temp/eq_log.xml`-ში.
+  - რატომ: XML არის სტრუქტურირებული ფორმატი, რომლისგანაც მარტივად ვიღებთ დროს, კოორდინატებს, სიღრმეს და მაგნიტუდას.
+  - პასუხისმგებლობა: მხოლოდ „მონაცემის წამოღება/შენახვა“, ლოგიკა/გათვლები აქ არ უნდა იყოს.
+
+- **Parsing/Normalization layer (XML -> dict)**: Python კითხულობს XML-ს და აკეთებს ერთ统一 dictionary-ს:
+  - `event_id`, `time`, `longitude`, `latitude`, `depth_km`, `magnitude`
+  - რატომ: `sm_create -e ...` ითხოვს სწორედ ამ ველებს (ShakeMap event-ის მინიმალური პაკეტი).
+  - აქვე ხდება დამრგვალება/კონვერტაცია (თუ საჭიროა), რომ გამომავალი იყოს სტაბილური და ერთნაირი ფორმატით.
+
+- **Execution layer (ShakeMap CLI call)**: ბოლოს იძახებს `sm_create`.
+  - რატომ: ShakeMap event რეალურად იქმნება `sm_create`-ით; ეს სკრიპტი მხოლოდ ამ პროცესს ავტომატიზებს.
+  - კრიტიკული დეტალი: `sm_create` უნდა გაეშვას სწორ გარემოში.
+
+
+გარემო (conda) და რატომაა საჭირო
+-------------------------------
+
+`sm_create` მოდის ShakeMap-ის Python environment-იდან, ამიტომ სკრიპტში გვაქვს:
+- `conda activate shakemap`
+- შემდეგ `sm_create ...`
+
+რატომ:
+- სისტემურ Python-ზე შეიძლება `sm_create` საერთოდ არ არსებობდეს, ან სხვა ვერსია იყოს.
+- `conda activate shakemap` უზრუნველყოფს სწორ ბინარებს/ბიბლიოთეკებს (ShakeMap install).
+
+ტექნიკური შენიშვნა:
+- `conda activate` პირდაპირ `subprocess.run([...])`-ში „მომენტალურად“ არ იმოქმედებს მომავალ subprocess-ზე, რადგან თითო გამოძახება ცალკე პროცესია.
+- ამიტომ ვუშვებთ ერთ `bash -lc` ბრძანებას, სადაც:
+  1) ვტვირთავთ conda hook-ს
+  2) ვაკეთებთ `conda activate shakemap`
+  3) და იმავე shell-ში ვუშვებთ `sm_create`
+
+
+End-to-End Flow (ერთ ხაზში)
+---------------------------
+
+`event_id` → `scxmldump` → `eq_log.xml` → parse/normalize → `conda activate shakemap` → `sm_create` → ShakeMap event
+
+
+ლოგირება და ფაილების სტრუქტურა
+------------------------------
+
+- `temp/eq_log.xml`: დროებითი XML, რომლითაც ვამოწმებთ/ვპარსავთ event-ს.
+- `logs/generate_shakemap.log`: როტაციით log-ები, რომ პრობლემის ძებნა სწრაფი იყოს (წარმატება/შეცდომა).
