@@ -1,10 +1,17 @@
 #!/usr/bin/env python3
+# Pipeline:
+# 1) SeisComP-დან მოვლენის XML წამოღება (scxmldump)
+# 2) XML-დან ძირითადი პარამეტრების ამოღება/დამრგვალება
+# 3) ShakeMap event-ის შექმნა/გაშვება (sm_create + shake)
+# 4) საბოლოო პროდუქტების ელფოსტით გაგზავნა
 import os
 import sys
 import re
 import shlex
 import xml.etree.ElementTree as ET
 import subprocess
+
+import ies_mail_sender
 
 import logging
 from logging.handlers import RotatingFileHandler
@@ -43,6 +50,7 @@ logger.addHandler(rotating_handler)
 
 # safe helper: script is sometimes called without the event_id argument
 def get_event_id_from_argv():
+    # ეს სკრიპტი ხშირად იძახება wrapper-იდან, სადაც event_id მოდის მესამე არგუმენტად.
     return sys.argv[2] if len(sys.argv) > 2 else None
 
 # ეს ფუნქცია პასუხისმგებელია xml-ის დაგენერირებაზე სეისკომპიდან გადმოცემული event_id-ით
@@ -85,12 +93,14 @@ def parse_downloaded_xml(xml_path):
     if origin_element is None:
         raise ValueError("XML-ში origin ტეგი ვერ მოიძებნა")
 
+    # XML მნიშვნელობები თავდაპირველად string-ებია;
+    # ვაქცევთ float-ად მხოლოდ ვალიდაციის/დამრგვალებისთვის.
     mag = to_float(origin_element.findtext("magnitude/magnitude/value"))
     depth = to_float(origin_element.findtext("depth/value"))
     lat = to_float(origin_element.findtext("latitude/value"))
     lon = to_float(origin_element.findtext("longitude/value"))
 
-    parsed_origin = {
+    parsed_data = {
         "event_id": event_element.attrib.get("publicID"),
         "time": origin_element.findtext("time/value"),
         "longitude": round(lon, 5) if lon is not None else None,
@@ -99,34 +109,39 @@ def parse_downloaded_xml(xml_path):
         "magnitude": round(mag, 3) if mag is not None else None,
     }
     
-    return parsed_origin
+    return parsed_data
 
-def run_sm_create(parsed_origin):
+def run_sm_create(parsed_data):
     required_fields = ["event_id", "time", "longitude", "latitude", "magnitude"]
-    missing_fields = [field for field in required_fields if parsed_origin.get(field) in (None, "")]
+    missing_fields = [field for field in required_fields if parsed_data.get(field) in (None, "")]
     if missing_fields:
         raise ValueError(f"sm_create-სთვის აუცილებელი ველები აკლია: {', '.join(missing_fields)}")
 
-    event_id = parsed_origin["event_id"]
+    event_id = parsed_data["event_id"]
 
+    # sm_create ქმნის event-ს ShakeMap პროფილში.
+    # აქ გადაეცემა NETID, TIME, LON, LAT, DEPTH, MAG და LOCSTR.
     sm_create_cmd = (
-        f'sm_create {event_id} '
+        f'sm_create -f {event_id} '
         f'-e ies '
-        f'{parsed_origin["time"]} '
-        f'{parsed_origin["longitude"]} '
-        f'{parsed_origin["latitude"]} '
-        f'{parsed_origin["depth_km"]} '
-        f'{parsed_origin["magnitude"]} '
+        f'{parsed_data["time"]} '
+        f'{parsed_data["longitude"]} '
+        f'{parsed_data["latitude"]} '
+        f'{parsed_data["depth_km"]} '
+        f'{parsed_data["magnitude"]} '
         f'" " -n'
     )
 
-    shake_cmd = f'shake {event_id} select assemble model contour mapping'
+    # shake-ის ეტაპები: select -> assemble -> model -> contour -> mapping
+    shake_cmd = f'echo {event_id} | shake {event_id} select assemble model contour mapping'
 
     print(sm_create_cmd)
     print(shake_cmd)
 
     conda_exe = os.environ.get("CONDA_EXE", "conda")
     bash_command = (
+        # conda activate ეფექტურია მხოლოდ იმავე shell-ის კონტექსტში,
+        # ამიტომ sm_create/shake უნდა გაეშვას ერთ bash -lc ბრძანებაში.
         f'eval "$({shlex.quote(conda_exe)} shell.bash hook)" '
         f'&& conda activate shakemap '
         f'&& {sm_create_cmd} '
@@ -137,10 +152,57 @@ def run_sm_create(parsed_origin):
 
     print(f'ShakeMap სრულად გაეშვა event_id={event_id}')
     logging.info("ShakeMap სრულად გაეშვა event_id=%s", event_id)
-    
+
+
+def send_email_with_attachments(event_id):
+    mail_list_file_path = os.path.join(SCRIPT_PATH, "mail_list")
+
+    email_title = f"მიწისძვრა - {event_id}"
+    email_message = f'''
+    ShakeMap მზად არის event: {event_id} შესამოწმებლად და შეგიძლიათ ნახოთ shake_map-ის ფოლდერში.
+
+    დეტალური ინფორმაცია მიწისძვრის შესახებ:\n\n
+    Event ID: {event_id}
+    Time: {parsed_data["time"]}
+    Location: {parsed_data["latitude"]}, {parsed_data["longitude"]}
+    Depth: {parsed_data["depth_km"]} km
+    Magnitude: {parsed_data["magnitude"]}
+'''
+
+    base_path = f"/home/sysop/shakemap_profiles/default/data/{event_id}/current/products"
+
+    # ფაილები
+    attachments = [
+        os.path.join(base_path, "pga.jpg"),
+        os.path.join(base_path, "pgv.jpg"),
+        os.path.join(base_path, "intensity.jpg"),
+    ]
+
+    # მხოლოდ არსებული ფაილები
+    existing_files = [f for f in attachments if os.path.exists(f)]
+
+    if not existing_files:
+        logging.error("არცერთი attachment ვერ მოიძებნა")
+        return
+
+    ies_mail_sender.send_mail(
+        mail_list_file_path,
+        email_title,
+        email_message,
+        attachments=existing_files
+    )
+
+    logging.info(f"მეილი გაიგზავნა: {event_id}")
+
+
 if __name__ == '__main__':
-    # 1) XML ფაილის დაგენერირება სეისკომპიდან scxmldump-ის გამოყენებით .
+    # Entry point:
+    # 1) XML dump -> 2) parse -> 3) ShakeMap -> 4) email notification
     event_id = get_event_id_from_argv()
+    mail_list_file_path = os.path.join(SCRIPT_PATH, "mail_list")
+    email_title = "ახალი მიწისძვრის შესახებ ინფორმაცია"
+    email_message = "ახალი მიწისძვრის შესახებ ინფორმაცია დაგენერირდა და შეგიძლიათ ნახოთ shake_map-ის ფოლდერში."
+
     if event_id:
         xml_dump(XML_PATH, event_id, SERVER_IP)
 
@@ -149,9 +211,13 @@ if __name__ == '__main__':
         sys.exit(1)
 
     try:
-        parsed_origin = parse_downloaded_xml(XML_PATH)
-        print(parsed_origin)
-        run_sm_create(parsed_origin)
+        parsed_data = parse_downloaded_xml(XML_PATH)
+        print(parsed_data)
+
+        run_sm_create(parsed_data)
+
+        send_email_with_attachments(event_id)
+
     except Exception as exc:
         logging.critical(f'XML parse შეცდომა: {exc}')
         sys.exit(1)
