@@ -2,15 +2,15 @@
 import  pymysql, math, os, datetime
 
 # seiscomp-ის მონაცემთა ბაზასთან დასაკავშირებელი პარამეტრები
-hostname = "127.0.0.1"
-sc_username = "sysop"
-sc_password = "sysop"
-sc_databasename = "seiscomp"
+hostname = ""
+sc_username = ""
+sc_password = ""
+sc_databasename = ""
 
 # ies_borders ბაზასთან დასაკავშირებელი პარამეტრები
-ies_borders_username = 'ies_borders'
-ies_borders_password = 'cJ03&57v6cqf'
-ies_borders_databasename = 'ies_borders'
+ies_borders_username = ''
+ies_borders_password = ''
+ies_borders_databasename = ''
 
 
 # log ფაილის სახელი
