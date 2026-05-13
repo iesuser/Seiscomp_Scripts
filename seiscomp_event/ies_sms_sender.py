@@ -4,21 +4,21 @@ import os, requests, datetime, re, time, json, pickle
 
 # iesresource - საიტის gsm - ით სმს გასაგზავნი php failis მისამართი
 ies_gsm_sms_sender_url = 'http://iesresource.iliauni.edu.ge/block/ies_gsm_sms_sender.php'
-code = "4JRmW&tZwfxN*2B9i%k0WkI&FQB"
+code = ""
 
 # მაგთის სერვერის მისამართი, რომლითაც ვაგზავნით sms - ებს
 magti_url = 'http://81.95.160.47/mt/oneway?'
 
 # მაგთის სერვერის user - ი, 
-magti_username = 'ies'
+magti_username = ''
 # მაგთის სერვერის user - ის პაროლი
-magti_password = 'I643'
+magti_password = ''
 
 magti_track_url = "http://81.95.160.47/bi/track.php"
 
 
 # smsoffice - ი
-sms_offic_key = 'e1714f9ac5e743e297c221cde15bb491'
+sms_offic_key = ''
 sms_offic_url = 'https://smsoffice.ge/api/v2/send/'
 # smsoffice_balance_url = f'https://smsoffice.ge/api/getBalance?key={sms_offic_key}'
 smsoffice_balance_url = "http://smsoffice.ge/api/getBalance?key={}".format(sms_offic_key)
