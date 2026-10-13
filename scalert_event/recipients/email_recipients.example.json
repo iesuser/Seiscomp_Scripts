@@ -1,0 +1,5 @@
+[
+ {"username": "Staff Member", "email": "staff.member@iliauni.edu.ge", "is_staff": true, "is_active": true},
+ {"username": "External", "email": "external@example.com", "is_staff": false, "is_active": true},
+ {"username": "On Leave", "email": "on.leave@iliauni.edu.ge", "is_staff": true, "is_active": false}
+]
