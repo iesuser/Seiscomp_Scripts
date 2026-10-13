@@ -14,3 +14,8 @@ __pycache__/
 /archive/
 *.pickle
 credentials/
+/scalert_event/venv/
+/scalert_event/logs/
+/scalert_event/recipients/email_recipients.json
+/scalert_event/recipients/sms_recipients.json
+/scalert_event/recipients/*.tmp

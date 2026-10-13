@@ -1,0 +1,5 @@
+[
+ {"username": "Staff Member", "phone_number": "+995555000001", "is_staff": true, "is_active": true},
+ {"username": "External", "phone_number": "+995555000002", "is_staff": false, "is_active": true},
+ {"username": "On Leave", "phone_number": "+995555000003", "is_staff": true, "is_active": false}
+]
