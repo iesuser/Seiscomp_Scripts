@@ -49,7 +49,7 @@ class FakeResponse(io.BytesIO):
 
 @pytest.fixture
 def api(tmp_path):
-    return RecipientsApiSettings("https://example.test:3030/", "key", tmp_path / "missing.pem", 5)
+    return RecipientsApiSettings("https://example.test:3030/", "key", None, 5)
 
 
 @pytest.fixture
@@ -75,8 +75,8 @@ def env(tmp_path, monkeypatch):
     sms_file = tmp_path / "sms_recipients.json"
     monkeypatch.setenv("RECIPIENTS_FILE", str(email_file))
     monkeypatch.setenv("SMS_RECIPIENTS_FILE", str(sms_file))
-    monkeypatch.setenv("RECIPIENTS_API_URL", "https://example.test:3030/")
-    monkeypatch.setenv("RECIPIENTS_API_KEY", "key")
+    monkeypatch.setenv("Recp_Exporter_API_URL", "https://example.test:3030/")
+    monkeypatch.setenv("Recp_Exporter_API_KEY", "key")
     monkeypatch.setattr(update_recipients, "LOG_FILE", tmp_path / "update.log")
     return email_file, sms_file
 

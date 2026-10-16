@@ -30,7 +30,7 @@ def settings(tmp_path, monkeypatch):
 @pytest.fixture
 def channels(monkeypatch):
     """Fake mail and SMS delivery; records what each channel was asked to send."""
-    sent = {"mail": [], "sms": [], "sms_kwargs": []}
+    sent = {"mail": [], "sms": [], "sms_kwargs": [], "api": []}
 
     def fake_mail(result, lat, lon, **kwargs):
         sent["mail"].append(result)
@@ -42,7 +42,13 @@ def channels(monkeypatch):
         return True
 
     monkeypatch.setattr(scalert_event, "send_event_mail", fake_mail)
+    def fake_add_event(payload):
+        sent["api"].append(payload)
+        return {"id": 1, "created": True}
+
+    monkeypatch.setattr(scalert_event, "send_event_mail", fake_mail)
     monkeypatch.setattr(scalert_event, "send_event_sms", fake_sms)
+    monkeypatch.setattr(scalert_event, "add_event", fake_add_event)
     return sent
 
 
@@ -115,6 +121,40 @@ def test_sms_is_sent_when_mail_fails(run, monkeypatch, channels):
 def test_sms_can_be_turned_off(run, settings, channels):
     run(settings=replace(settings, send_sms=False))
     assert len(channels["mail"]) == 1 and channels["sms"] == []
+
+
+def test_published_event_is_added_to_api(run, channels):
+    run()
+    assert channels["api"] == [{
+        "seiscomp_oid": "ies1",
+        "origin_time": "2026-09-08 04:52:15",
+        "latitude": 41.607,
+        "longitude": 43.5676,
+        "depth": 15.3,
+        "magnitudes": {"ML": 4.23},
+        "location_ge": "საქართველო. ქალაქი გორი:5კმ.",
+        "is_automatic": True,
+    }]
+
+
+def test_staff_only_event_is_not_added_to_api(run, make_assessment, channels):
+    run(assessment=make_assessment(Audience.STAFF, 2.9))
+    assert channels["api"] == []
+
+
+def test_api_can_be_turned_off(run, settings, channels):
+    run(settings=replace(settings, send_eq2api=False))
+    assert channels["api"] == []
+
+
+def test_api_failure_does_not_stop_mail_and_sms(run, monkeypatch, channels):
+    def broken_api(payload):
+        raise RuntimeError("api down")
+
+    monkeypatch.setattr(scalert_event, "add_event", broken_api)
+    with pytest.raises(RuntimeError, match="API"):
+        run()
+    assert len(channels["mail"]) == 1 and len(channels["sms"]) == 1
 
 
 def test_not_existing_event_is_skipped(run):

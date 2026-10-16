@@ -21,6 +21,7 @@ Every step goes to logs/event_scalert.log, one keyword per line:
     DECISION   SEND or NOT SENT, with the Georgian reason
     MAIL ...   email recipients and delivery result
     SMS ...    SMS numbers, per-gateway result and delivery result
+    API ...    publishable event added to / updated on the iesdata site
     FAILED     an exception, with traceback
 """
 
@@ -28,9 +29,10 @@ import argparse
 import logging
 import sys
 
-from automate_events import process_event
+from automate_events import EventAssessment, process_event
 from config import Settings, load_settings
-from seiscomp_db import load_event
+from seiscomp_db import EventData, load_event
+from send_eq2api.send_eq2api import add_event
 from send_notification.ies_mail_sender import send_event_mail
 from send_notification.ies_sms_sender import SmsSender, send_event_sms
 from send_notification.mailer import Mailer
@@ -138,6 +140,8 @@ def process(event_id: str, settings: Settings, *, dry_run: bool) -> None:
             context=context,
             dry_run=dry_run,
         )))
+    if settings.send_eq2api and result.publish:
+        channels.append(("API", lambda: send_event_api(event, result, context=context, dry_run=dry_run)))
 
     failed = []
     for name, send in channels:
@@ -148,6 +152,27 @@ def process(event_id: str, settings: Settings, *, dry_run: bool) -> None:
             failed.append(name)
     if failed:
         raise RuntimeError(f"notification channel(s) failed: {', '.join(failed)}")
+
+
+def send_event_api(event: EventData, result: EventAssessment, *, context: str, dry_run: bool) -> None:
+    """Add the event to the iesdata site, or update it if its publicID is already there."""
+    payload = {
+        "seiscomp_oid": event.event_id,
+        "origin_time": event.origin_time.strftime("%Y-%m-%d %H:%M:%S"),
+        "latitude": event.latitude,
+        "longitude": event.longitude,
+        "depth": event.depth,
+        "magnitudes": event.magnitudes,
+        "location_ge": result.location_ge,
+        "is_automatic": event.evaluation_mode == "automatic",
+    }
+    if dry_run:
+        logger.info("API DRY RUN %s payload=%s", context, payload)
+        return
+    response = add_event(payload)
+    logger.info(
+        "API %s %s id=%s", "CREATED" if response["created"] else "UPDATED", context, response["id"],
+    )
 
 
 def main(argv: list[str] | None = None) -> int:
