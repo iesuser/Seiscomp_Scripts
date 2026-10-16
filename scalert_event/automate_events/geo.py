@@ -10,16 +10,17 @@ from collections.abc import Sequence
 EARTH_RADIUS_KM = 6371.0
 
 # Upper bounds (exclusive) of each compass sector, in degrees counter-clockwise
-# from east. Anything at or above the last bound wraps back to east.
-_COMPASS_SECTORS_GE = (
-    (23.0, "აღმოსავლეთით"),  # east
-    (68.0, "ჩრდილო-აღმოსავლეთით"),  # north-east
-    (113.0, "ჩრდილოეთით"),  # north
-    (158.0, "ჩრდილო-დასავლეთით"),  # north-west
-    (203.0, "დასავლეთით"),  # west
-    (248.0, "სამხრეთ-დასავლეთით"),  # south-west
-    (293.0, "სამხრეთით"),  # south
-    (338.0, "სამხრეთ-აღმოსავლეთით"),  # south-east
+# from east, with the Georgian and English words. Anything at or above the last
+# bound wraps back to east.
+_COMPASS_SECTORS = (
+    (23.0, "აღმოსავლეთით", "east"),
+    (68.0, "ჩრდილო-აღმოსავლეთით", "north-east"),
+    (113.0, "ჩრდილოეთით", "north"),
+    (158.0, "ჩრდილო-დასავლეთით", "north-west"),
+    (203.0, "დასავლეთით", "west"),
+    (248.0, "სამხრეთ-დასავლეთით", "south-west"),
+    (293.0, "სამხრეთით", "south"),
+    (338.0, "სამხრეთ-აღმოსავლეთით", "south-east"),
 )
 
 
@@ -46,16 +47,21 @@ def planar_bearing_degrees(from_lat: float, from_lon: float, to_lat: float, to_l
     return math.degrees(math.atan2(d_lat, d_lon)) % 360.0
 
 
-def compass_direction_ge(from_lat: float, from_lon: float, to_lat: float, to_lon: float) -> str:
-    """Georgian compass word describing where `to` lies relative to `from`.
+def compass_direction(from_lat: float, from_lon: float, to_lat: float, to_lon: float) -> tuple[str, str]:
+    """Georgian and English compass words describing where `to` lies relative to `from`.
 
-    Example: a point north-east of a city gives "ჩრდილო-აღმოსავლეთით".
+    Example: a point north-east of a city gives ("ჩრდილო-აღმოსავლეთით", "north-east").
     """
     bearing = planar_bearing_degrees(from_lat, from_lon, to_lat, to_lon)
-    for upper_bound, label in _COMPASS_SECTORS_GE:
+    for upper_bound, label_ge, label_en in _COMPASS_SECTORS:
         if bearing < upper_bound:
-            return label
-    return _COMPASS_SECTORS_GE[0][1]
+            return label_ge, label_en
+    return _COMPASS_SECTORS[0][1:]
+
+
+def compass_direction_ge(from_lat: float, from_lon: float, to_lat: float, to_lon: float) -> str:
+    """Georgian compass word describing where `to` lies relative to `from`."""
+    return compass_direction(from_lat, from_lon, to_lat, to_lon)[0]
 
 
 def point_in_polygon(lat: float, lon: float, polygon: Sequence[tuple[float, float]]) -> bool:

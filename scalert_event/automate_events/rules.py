@@ -27,7 +27,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 
 from .acceleration import estimate_acceleration
-from .location import GEORGIA, TBILISI, LocationService
+from .location import GEORGIA, GEORGIA_PREFIX, TBILISI, LocationService, Text
 
 # Magnitude from which an event inside Georgia goes to everyone.
 MIN_GEORGIA_MAGNITUDE = 3.0
@@ -54,13 +54,21 @@ class Decision:
         audience: Who is notified, or None when nobody is.
         reason: Georgian explanation of the outcome, including the numbers
             it was based on. Always set.
-        location_ge: Georgian location text for the notification. Only built
-            when something is sent, because it costs extra database lookups.
+        location: Georgian and English location text for the notification.
+            Only built when something is sent, because it costs extra database lookups.
     """
 
     audience: Audience | None
     reason: str
-    location_ge: str | None = None
+    location: Text | None = None
+
+    @property
+    def location_ge(self) -> str | None:
+        return self.location.ge if self.location else None
+
+    @property
+    def location_en(self) -> str | None:
+        return self.location.en_text if self.location else None
 
     @property
     def send(self) -> bool:
@@ -86,7 +94,7 @@ def decide(
 
 
 def _decide_in_georgia(locations, lat, lon, depth_km, magnitude) -> Decision:
-    prefix = "საქართველო."
+    prefix = GEORGIA_PREFIX
 
     # Strong enough anywhere in Georgia.
     if magnitude >= MIN_GEORGIA_MAGNITUDE:

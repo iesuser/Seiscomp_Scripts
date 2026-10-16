@@ -93,11 +93,23 @@ class RecipientsApiSettings:
 
 
 @dataclass(frozen=True)
+class EventApiSettings:
+    """The iesdata API where publishable events are added (send_eq2api)."""
+
+    base_url: str
+    api_key: str
+    # Only needed for a self-signed server certificate; None means the system CA store.
+    ca_file: Path | None
+    timeout_s: float
+
+
+@dataclass(frozen=True)
 class Settings:
     seiscomp_db: SeiscompDbSettings
     mail: MailSettings
     sms: SmsSettings
     recipients_api: RecipientsApiSettings
+    event_api: EventApiSettings
     recipients_file: Path
     sms_recipients_file: Path
     send_email: bool
@@ -154,6 +166,12 @@ def load_settings() -> Settings:
             api_key=os.getenv("Recp_Exporter_API_KEY", ""),
             ca_file=_path_setting("Recp_Exporter_API_CA", "") if os.getenv("Recp_Exporter_API_CA") else None,
             timeout_s=float(os.getenv("Recp_Exporter_API_TIMEOUT") or 20),
+        ),
+        event_api=EventApiSettings(
+            base_url=os.getenv("Send_eq2api_API_URL", "https://iesdata.iliauni.edu.ge:3030/"),
+            api_key=os.getenv("Send_eq2api_API_KEY", ""),
+            ca_file=_path_setting("Send_eq2api_API_CA", "") if os.getenv("Send_eq2api_API_CA") else None,
+            timeout_s=float(os.getenv("Send_eq2api_API_TIMEOUT") or 20),
         ),
         recipients_file=_path_setting("RECIPIENTS_FILE", BASE_DIR / "recipients" / "email_recipients.json"),
         sms_recipients_file=_path_setting("SMS_RECIPIENTS_FILE", BASE_DIR / "recipients" / "sms_recipients.json"),

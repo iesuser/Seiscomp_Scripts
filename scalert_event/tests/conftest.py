@@ -21,6 +21,7 @@ def make_assessment():
             magnitude=magnitude,
             local_time=datetime(2026, 10, 7, 9, 15, 3),
             reason="test",
+            location_en="Georgia. Gori (city)." if audience else None,
         )
 
     return make

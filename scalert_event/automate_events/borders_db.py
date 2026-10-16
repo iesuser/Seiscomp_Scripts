@@ -81,7 +81,8 @@ class BordersDbSettings:
 class City:
     """A row of `cities_caucasus`.
 
-    `status_ge` is the settlement type shown before the name (e.g. "ქალაქი").
+    `status_ge` is the settlement type shown before the name (e.g. "ქალაქი"),
+    `status_en` the same in English (e.g. "City").
     `radius_km` approximates the city's size; distances are measured from its edge.
     """
 
@@ -90,6 +91,8 @@ class City:
     name_ge: str
     status_ge: str
     radius_km: int
+    name_en: str = ""
+    status_en: str = ""
 
 
 @dataclass(frozen=True)
@@ -100,6 +103,8 @@ class Settlement:
     longitude: float
     name_ge: str
     status_ge: str
+    name_en: str = ""
+    status_en: str = ""
 
 
 class BordersRepository:
@@ -162,12 +167,12 @@ class BordersRepository:
         """Caucasus cities, excluding Tbilisi (it is described by district instead)."""
         if self._cities is None:
             rows = self._fetch(
-                "SELECT latitude, longitude, name_ge, status_ge, radius "
+                "SELECT latitude, longitude, name_ge, status_ge, radius, name_en, status_en "
                 "FROM cities_caucasus WHERE status_en != 'tbilisi'"
             )
             self._cities = tuple(
-                City(float(lat), float(lon), name, status, int(radius))
-                for lat, lon, name, status, radius in rows
+                City(float(lat), float(lon), name, status, int(radius), name_en or "", status_en or "")
+                for lat, lon, name, status, radius, name_en, status_en in rows
             )
         return self._cities
 
@@ -175,11 +180,12 @@ class BordersRepository:
         """All Georgian settlements."""
         if self._settlements is None:
             rows = self._fetch(
-                "SELECT latitude, longitude, name_ge, status_ge FROM settlements_georgia"
+                "SELECT latitude, longitude, name_ge, status_ge, name_en, status_en "
+                "FROM settlements_georgia"
             )
             self._settlements = tuple(
-                Settlement(float(lat), float(lon), name, status)
-                for lat, lon, name, status in rows
+                Settlement(float(lat), float(lon), name, status, name_en or "", status_en or "")
+                for lat, lon, name, status, name_en, status_en in rows
             )
         return self._settlements
 

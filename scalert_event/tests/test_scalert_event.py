@@ -6,7 +6,8 @@ import pytest
 import scalert_event
 from automate_events import Audience
 from config import load_settings
-from seiscomp_db import EventData
+from seiscomp_db import EventData, EventNotReady
+from send_eq2api.send_eq2api import EventApiError
 
 EVENT = EventData(
     event_id="ies1",
@@ -29,7 +30,7 @@ def settings(tmp_path, monkeypatch):
 
 @pytest.fixture
 def channels(monkeypatch):
-    """Fake mail and SMS delivery; records what each channel was asked to send."""
+    """Fake mail, SMS and site API; records what each channel was asked to send."""
     sent = {"mail": [], "sms": [], "sms_kwargs": [], "api": []}
 
     def fake_mail(result, lat, lon, **kwargs):
@@ -41,14 +42,17 @@ def channels(monkeypatch):
         sent["sms_kwargs"].append(kwargs)
         return True
 
-    monkeypatch.setattr(scalert_event, "send_event_mail", fake_mail)
-    def fake_add_event(payload):
-        sent["api"].append(payload)
-        return {"id": 1, "created": True}
+    class FakeEventApiClient:
+        def __init__(self, settings):
+            pass
+
+        def add_event(self, payload):
+            sent["api"].append(payload)
+            return {"id": 1, "created": True}
 
     monkeypatch.setattr(scalert_event, "send_event_mail", fake_mail)
     monkeypatch.setattr(scalert_event, "send_event_sms", fake_sms)
-    monkeypatch.setattr(scalert_event, "add_event", fake_add_event)
+    monkeypatch.setattr(scalert_event, "EventApiClient", FakeEventApiClient)
     return sent
 
 
@@ -133,8 +137,25 @@ def test_published_event_is_added_to_api(run, channels):
         "depth": 15.3,
         "magnitudes": {"ML": 4.23},
         "location_ge": "საქართველო. ქალაქი გორი:5კმ.",
+        "location_en": "Georgia. Gori (city).",
         "is_automatic": True,
     }]
+
+
+def test_api_payload_is_rounded(run, channels):
+    event = replace(
+        EVENT, latitude=41.845951080322266, longitude=43.55186462402344,
+        depth=10.123456, magnitudes={"ML": 1.943421827293825, "Mwp": 3.1},
+    )
+    run(event=event)
+    payload = channels["api"][0]
+    assert (payload["latitude"], payload["longitude"], payload["depth"]) == (41.84595, 43.55186, 10.123)
+    assert payload["magnitudes"] == {"ML": 1.943}
+
+
+def test_event_without_site_magnitude_is_not_added_to_api(run, channels):
+    run(event=replace(EVENT, magnitudes={"Mwp": 3.1}))
+    assert channels["api"] == []
 
 
 def test_staff_only_event_is_not_added_to_api(run, make_assessment, channels):
@@ -148,10 +169,14 @@ def test_api_can_be_turned_off(run, settings, channels):
 
 
 def test_api_failure_does_not_stop_mail_and_sms(run, monkeypatch, channels):
-    def broken_api(payload):
-        raise RuntimeError("api down")
+    class BrokenEventApiClient:
+        def __init__(self, settings):
+            pass
 
-    monkeypatch.setattr(scalert_event, "add_event", broken_api)
+        def add_event(self, payload):
+            raise EventApiError("api down")
+
+    monkeypatch.setattr(scalert_event, "EventApiClient", BrokenEventApiClient)
     with pytest.raises(RuntimeError, match="API"):
         run()
     assert len(channels["mail"]) == 1 and len(channels["sms"]) == 1
@@ -175,4 +200,16 @@ def test_main_logs_failure_and_returns_error(monkeypatch, settings):
     assert "RECEIVED event_id=ies1 flag=new" in log
     assert "FAILED event_id=ies1" in log
     assert "db down" in log
+    assert "Traceback" in log
+
+
+def test_event_not_in_database_is_one_line_without_traceback(monkeypatch, settings):
+    def not_found(*args, **kwargs):
+        raise EventNotReady("event ies1 not found")
+
+    monkeypatch.setattr(scalert_event, "load_event", not_found)
+    assert scalert_event.main(["ies1"]) == scalert_event.EXIT_FAILED
+    log = settings.log_file.read_text(encoding="utf-8")
+    assert "FAILED event_id=ies1: event ies1 not found" in log
+    assert "Traceback" not in log
 

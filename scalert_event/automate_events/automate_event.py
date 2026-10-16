@@ -42,6 +42,7 @@ class EventAssessment:
         local_time: Origin time converted to Georgian local time.
         reason: Georgian explanation of the outcome, including the numbers
             (distances, accelerations) it was based on.
+        location_en: English version of `location_ge`, for the iesdata site.
     """
 
     audience: Audience | None
@@ -52,6 +53,7 @@ class EventAssessment:
     magnitude: float
     local_time: datetime
     reason: str
+    location_en: str | None = None
 
     @property
     def send(self) -> bool:
@@ -65,6 +67,7 @@ class EventAssessment:
             "audience": self.audience.value if self.audience else None,
             "publish": self.publish,
             "location_ge": self.location_ge,
+            "location_en": self.location_en,
             "ev_mode": self.ev_mode,
             "magnitude_type": self.magnitude_type,
             "magnitude": self.magnitude,
@@ -128,6 +131,7 @@ def process_event(
         magnitude=magnitude,
         local_time=local_time,
         reason=decision.reason,
+        location_en=decision.location_en,
     )
 
 
