@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import datetime
 
 import pytest
@@ -9,7 +10,9 @@ from send_eq2api.event_sender import build_event_payload, send_event_api, site_m
 from send_eq2api.send_eq2api import EventApiClient, EventApiError, validate_event
 
 BASE = "https://iesdata.test:3030"
-SETTINGS = EventApiSettings(BASE + "/", "key", None, 5)
+SETTINGS = EventApiSettings(
+    base_url=BASE + "/", api_key="edit-key", publisher_api_key="publish-key", ca_file=None, timeout_s=5,
+)
 
 EVENT = {
     "seiscomp_oid": "ies1",
@@ -42,10 +45,12 @@ class FakeSession:
     def __init__(self, routes=None):
         self.routes = routes or {}
         self.calls = []
+        self.keys = []
 
     def request(self, method, url, *, json, headers, timeout, verify):
         path = url.removeprefix(BASE)
         self.calls.append((method, path, json))
+        self.keys.append(headers["X-API-Key"])
         answer = self.routes.get((method, path), FakeResponse(200, {}))
         if isinstance(answer, Exception):
             raise answer
@@ -63,7 +68,7 @@ CREATED = {("POST", "/api/seismic_events/"): FakeResponse(201, {"event": {"id": 
 
 def test_new_event_is_created_with_its_magnitudes():
     api, session = client({**NOT_FOUND, **CREATED})
-    assert api.add_event(EVENT) == {"id": 7, "created": True}
+    assert api.add_event(EVENT) == {"id": 7, "created": True, "is_published": False}
     assert [(m, p) for m, p, _ in session.calls] == [
         ("POST", "/api/seismic_events/filter"),
         ("POST", "/api/seismic_events/"),
@@ -97,7 +102,7 @@ def test_failed_rollback_says_the_event_must_be_deleted_manually():
 def test_existing_event_is_updated_and_new_magnitude_added():
     existing = {"seiscomp_oid": "ies1", "id": 3, "magnitudes": [{"id": 30, "magnitude": {"code": "ml"}}]}
     api, session = client({("POST", "/api/seismic_events/filter"): FakeResponse(200, {"items": [existing]})})
-    assert api.add_event(EVENT) == {"id": 3, "created": False}
+    assert api.add_event(EVENT) == {"id": 3, "created": False, "is_published": False}
     assert [(m, p, j) for m, p, j in session.calls[1:] if p != "/api/seismic_events/3"] == [
         ("PUT", "/api/seismic_events/magnitudes/30", {"value": 1.943}),
         ("POST", "/api/seismic_events/3/magnitudes", {"magnitude_code": "M", "value": 2.759}),
@@ -131,7 +136,7 @@ def test_network_error_becomes_event_api_error():
 
 def test_missing_api_key_sends_nothing():
     session = FakeSession()
-    api = EventApiClient(EventApiSettings(BASE, "", None, 5), session=session)
+    api = EventApiClient(replace(SETTINGS, api_key=""), session=session)
     with pytest.raises(EventApiError, match="Send_eq2api_API_KEY"):
         api.add_event(EVENT)
     assert session.calls == []
@@ -176,8 +181,96 @@ def test_payload_built_from_seiscomp_is_valid(make_assessment):
     assert payload["is_automatic"] is False
 
 
-def test_dry_run_sends_nothing(make_assessment):
-    event = EventData("ies1", "Origin/1", datetime(2026, 10, 12), 41.8, 43.5, 10, "automatic", "earthquake", {"ML": 3.4})
+SEISCOMP_EVENT = EventData(
+    "ies1", "Origin/1", datetime(2026, 10, 12), 41.8, 43.5, 10, "automatic", "earthquake", {"ML": 3.4},
+)
+PUBLISHED = {
+    ("POST", "/api/publish_events/publish/7"): FakeResponse(200, {"published": True, "message": "Publish request completed.", "wp_response": "1"}),
+}
+
+
+def test_only_send_api_decides_whether_the_site_gets_the_event(make_assessment):
+    api, session = client({**NOT_FOUND, **CREATED, **PUBLISHED})
+    assert send_event_api(SEISCOMP_EVENT, replace(make_assessment(), send_api=False), client=api) is False
+    assert session.calls == []
+    assert send_event_api(SEISCOMP_EVENT, make_assessment(), client=api) is True
+
+
+def test_publish_iliauni_publishes_with_the_publisher_key(make_assessment):
+    api, session = client({**NOT_FOUND, **CREATED, **PUBLISHED})
+    send_event_api(SEISCOMP_EVENT, make_assessment(), client=api)
+    assert session.calls[-1][:2] == ("POST", "/api/publish_events/publish/7")
+    assert session.keys[-1] == "publish-key"
+    assert set(session.keys[:-1]) == {"edit-key"}
+
+
+def test_staff_only_event_is_added_but_not_published(make_assessment):
+    from automate_events import Audience
+
+    api, session = client({**NOT_FOUND, **CREATED})
+    assert send_event_api(SEISCOMP_EVENT, make_assessment(Audience.STAFF, 2.9), client=api) is True
+    assert ("POST", "/api/seismic_events/") in [(m, p) for m, p, _ in session.calls]
+    assert not any("publish_events" in p for _, p, _ in session.calls)
+
+
+def found(is_published):
+    item = {"seiscomp_oid": "ies1", "id": 3, "magnitudes": [], "is_published": is_published}
+    return {("POST", "/api/seismic_events/filter"): FakeResponse(200, {"items": [item]})}
+
+
+def wordpress_calls(session):
+    return [path for _, path, _ in session.calls if "publish_events" in path]
+
+
+def test_event_downgraded_to_staff_is_unpublished(make_assessment):
+    from automate_events import Audience
+
+    api, session = client(found(is_published=True))
+    send_event_api(SEISCOMP_EVENT, make_assessment(Audience.STAFF, 2.9), client=api)
+    assert wordpress_calls(session) == ["/api/publish_events/unpublish/3"]
+    assert session.keys[-1] == "publish-key"
+
+
+def test_staff_event_never_published_is_not_unpublished(make_assessment):
+    from automate_events import Audience
+
+    api, session = client(found(is_published=False))
+    send_event_api(SEISCOMP_EVENT, make_assessment(Audience.STAFF, 2.9), client=api)
+    assert wordpress_calls(session) == []
+
+
+def test_published_event_for_everyone_is_published_again_not_unpublished(make_assessment):
+    api, session = client({
+        **found(is_published=True),
+        ("POST", "/api/publish_events/publish/3"): FakeResponse(200, {"published": True}),
+    })
+    send_event_api(SEISCOMP_EVENT, make_assessment(), client=api)
+    assert wordpress_calls(session) == ["/api/publish_events/publish/3"]
+
+
+def test_publish_answered_not_published_is_an_error():
+    api, _ = client({("POST", "/api/publish_events/publish/7"): FakeResponse(200, {"published": False, "message": "WP down"})})
+    with pytest.raises(EventApiError, match="#7 was not published: WP down"):
+        api.publish_event(7)
+
+
+def test_missing_publisher_key_is_reported_by_name():
     api, session = client()
-    assert send_event_api(event, make_assessment(), client=api, dry_run=True) is False
+    api = EventApiClient(replace(SETTINGS, publisher_api_key=""), session=session)
+    with pytest.raises(EventApiError, match="SeisComp_Publisher_API_KEY is not set"):
+        api.publish_event(7)
+    assert session.calls == []
+
+
+def test_403_shows_our_text_and_the_api_reason():
+    api, _ = client({("POST", "/api/publish_events/publish/7"): FakeResponse(
+        403, {"error": "forbidden", "message": "Missing required permission: can_event_publish"},
+    )})
+    with pytest.raises(EventApiError, match="საჭირო უფლება — Missing required permission: can_event_publish"):
+        api.publish_event(7)
+
+
+def test_dry_run_sends_nothing(make_assessment):
+    api, session = client()
+    assert send_event_api(SEISCOMP_EVENT, make_assessment(), client=api, dry_run=True) is False
     assert session.calls == []

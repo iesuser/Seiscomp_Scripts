@@ -1,0 +1,511 @@
+<!DOCTYPE html>
+<html lang="ka">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>scalert_event — გამართვის ინსტრუქცია</title>
+<style>
+body { font-family: "Noto Sans Georgian", "DejaVu Sans", sans-serif; font-size: 15px;
+       line-height: 1.55; color: #1f2328; max-width: 980px; margin: 0 auto; padding: 24px 32px; }
+h1 { border-bottom: 2px solid #0b5394; padding-bottom: 6px; color: #0b5394; }
+h2 { border-bottom: 1px solid #d0d7de; padding-bottom: 4px; margin-top: 2em; color: #0b5394; }
+h3 { margin-top: 1.5em; }
+a { color: #0b5394; }
+code { font-family: "DejaVu Sans Mono", monospace; font-size: 0.88em; background: #f2f4f7;
+       padding: 1px 4px; border-radius: 3px; }
+pre { background: #f6f8fa; border: 1px solid #d0d7de; border-radius: 6px; padding: 10px 12px;
+      overflow-x: auto; line-height: 1.35; }
+pre code { background: none; padding: 0; font-size: 12.5px; }
+table { border-collapse: collapse; margin: 12px 0; width: 100%; }
+th, td { border: 1px solid #d0d7de; padding: 5px 9px; vertical-align: top; text-align: left; }
+th { background: #eef2f7; }
+tr:nth-child(even) td { background: #fafbfc; }
+@page { size: A4; margin: 16mm 14mm; }
+@media print {
+  body { max-width: none; padding: 0; font-size: 11pt; }
+  pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+  pre code { font-size: 8pt; }
+  h2 { break-before: auto; break-after: avoid; }
+  h3 { break-after: avoid; }
+  tr, pre { break-inside: avoid; }
+}
+</style>
+</head>
+<body>
+<h1 id="scalert_event--გამართვის-ინსტრუქცია">scalert_event — გამართვის ინსტრუქცია</h1>
+<p>ეს ინსტრუქცია აღწერს, როგორ დავაყენოთ და ჩავრთოთ <code>scalert_event</code>: რა სჭირდება, რატომ
+ვიყენებთ თითოეულ ნაწილს და როგორ შევამოწმოთ, რომ ყველაფერი მუშაობს.</p>
+<p>როგორ მუშაობს სისტემა შიგნით (წესები, ლოკაცია, ლოგის ყველა ჩანაწერი, API), აღწერილია
+სრულ დოკუმენტაციაში: <a href="scalert_event_ka.html">docs/scalert_event_ka.md</a>
+(<a href="scalert_event_en.html">English</a>; HTML და PDF ვერსიები იმავე საქაღალდეშია).</p>
+<h2 id="შინაარსი">შინაარსი</h2>
+<ol>
+<li><a href="#1-რას-აკეთებს">რას აკეთებს</a></li>
+<li><a href="#2-რა-სჭირდება-და-რატომ">რა სჭირდება და რატომ</a></li>
+<li><a href="#3-ინსტალაცია">ინსტალაცია</a></li>
+<li><a href="#4-env-ის-შევსება"><code>.env</code>-ის შევსება</a></li>
+<li><a href="#5-შემოწმება-ჩართვამდე">შემოწმება ჩართვამდე</a></li>
+<li><a href="#6-scalert-ში-ჩართვა">scalert-ში ჩართვა</a></li>
+<li><a href="#7-მიმღებების-ავტომატური-განახლება-cron">მიმღებების ავტომატური განახლება (cron)</a></li>
+<li><a href="#8-ყოველდღიური-მუშაობა">ყოველდღიური მუშაობა</a></li>
+<li><a href="#9-პრობლემები-და-გადაჭრა">პრობლემები და გადაჭრა</a></li>
+<li><a href="#10-განახლება-და-გადატანა">განახლება და გადატანა</a></li>
+<li><a href="#11-დოკუმენტაციის-განახლება">დოკუმენტაციის განახლება</a></li>
+</ol>
+<h2 id="1-რას-აკეთებს">1. რას აკეთებს</h2>
+<p>SeisComP-ში მიწისძვრის გაჩენისას ან განახლებისას <code>scalert</code> უშვებს <code>scalert_event.py</code>-ს.
+სკრიპტი:</p>
+<ol>
+<li>SeisComP-ის ბაზიდან კითხულობს მიწისძვრის პარამეტრებს;</li>
+<li>წესების მიხედვით წყვეტს, ვის ეგზავნება: ყველას, მხოლოდ თანამშრომლებს, ან არავის;</li>
+<li>აგზავნის მეილს და SMS-ს;</li>
+<li>მიწისძვრას ამატებს iesdata საიტზე, ხოლო თუ ყველას ეგზავნება, აქვეყნებს WordPress-ზეც;</li>
+<li>ყველაფერს წერს ლოგში <code>logs/event_scalert.log</code>.</li>
+</ol>
+<h2 id="2-რა-სჭირდება-და-რატომ">2. რა სჭირდება და რატომ</h2>
+<h3 id="21-სერვისები">2.1 სერვისები</h3>
+<table>
+<thead>
+<tr>
+<th>რა</th>
+<th>რისთვის</th>
+<th>რატომ ასე</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>SeisComP <code>scalert</code></strong></td>
+<td>იძახებს სკრიპტს ყოველ მიწისძვრაზე</td>
+<td>SeisComP-ის სტანდარტული მექანიზმია; ცალკე დემონი არ გვჭირდება</td>
+</tr>
+<tr>
+<td><strong>SeisComP-ის MySQL ბაზა</strong> (<code>seiscomp</code>)</td>
+<td>მიწისძვრის დრო, კოორდინატები, სიღრმე, მაგნიტუდები</td>
+<td>scalert-ის არგუმენტებში ყველაფერი არ არის; ბაზა ერთადერთი სანდო წყაროა</td>
+</tr>
+<tr>
+<td><strong><code>ies_borders</code> MySQL ბაზა</strong></td>
+<td>საქართველოს და თბილისის საზღვრები, ქალაქები, დასახლებები</td>
+<td>წესებს სჭირდება „საქართველოშია?“, „თბილისშია?“, „რამდენი კმ-ია?“; ლოკაციის ტექსტს — სახელები ორ ენაზე</td>
+</tr>
+<tr>
+<td><strong>SMTP სერვერი</strong></td>
+<td>მეილის გაგზავნა</td>
+<td>—</td>
+</tr>
+<tr>
+<td><strong>SMS პროვაიდერები</strong>: Magti, smsoffice.ge, GSM მოდემი</td>
+<td>SMS</td>
+<td>სამი პროვაიდერი ჯაჭვად: თუ ერთი ვერ აგზავნის, ნომერი შემდეგზე გადადის</td>
+</tr>
+<tr>
+<td><strong>iesdata API</strong> (<code>https://iesdata.iliauni.edu.ge:3030</code>)</td>
+<td>მიმღებების სია; მიწისძვრების დამატება; WordPress-ზე გამოქვეყნება</td>
+<td>მიმღებები ერთ ადგილას იმართება (Notify), მიწისძვრები კი საიტზე ავტომატურად ჩნდება</td>
+</tr>
+<tr>
+<td><strong>cron</strong></td>
+<td>მიმღებების ფაილების განახლება ყოველ 10 წუთში</td>
+<td>გაგზავნა API-ზე არ არის დამოკიდებული: თუ API მიუწვდომელია, ბოლო ფაილი მაინც არსებობს</td>
+</tr>
+</tbody>
+</table>
+<h3 id="22-api-გასაღებები">2.2 API გასაღებები</h3>
+<p>iesdata-ზე სამი სერვისის გასაღები გამოიყენება. თითოეულს მხოლოდ საჭირო უფლება აქვს,
+რომ ერთი გასაღების გაჟონვამ ყველაფერზე წვდომა არ მისცეს:</p>
+<table>
+<thead>
+<tr>
+<th><code>.env</code></th>
+<th>ვინ იყენებს</th>
+<th>საჭირო უფლება</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>Recp_Exporter_API_KEY</code></td>
+<td><code>recipients/update_recipients.py</code></td>
+<td>მიმღებების წაკითხვა (<code>GET /api/recips/</code>)</td>
+</tr>
+<tr>
+<td><code>Send_eq2api_API_KEY</code></td>
+<td><code>send_eq2api</code> — მიწისძვრის დამატება და განახლება</td>
+<td><code>can_event_edit</code></td>
+</tr>
+<tr>
+<td><code>SeisComp_Publisher_API_KEY</code></td>
+<td><code>send_eq2api</code> — WordPress-ზე გამოქვეყნება და ჩამოხსნა</td>
+<td><code>can_event_publish</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="23-python-და-ბიბლიოთეკები">2.3 Python და ბიბლიოთეკები</h3>
+<table>
+<thead>
+<tr>
+<th>რა</th>
+<th>რისთვის</th>
+<th>რატომ</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Python 3.14</strong>, <code>venv/</code> საქაღალდეში</td>
+<td>მთელი კოდი</td>
+<td>ცალკე გარემო: სისტემის ან SeisComP-ის Python-ის განახლება სკრიპტს არ აფუჭებს</td>
+</tr>
+<tr>
+<td><strong><code>pymysql</code></strong></td>
+<td>SeisComP-ის და <code>ies_borders</code> ბაზები</td>
+<td>მთლიანად Python-შია, C ბიბლიოთეკები და კომპილაცია არ სჭირდება</td>
+</tr>
+<tr>
+<td><strong><code>requests</code></strong></td>
+<td>iesdata API (<code>send_eq2api</code>)</td>
+<td>session, timeout, JSON და შეცდომების მარტივი დამუშავება</td>
+</tr>
+<tr>
+<td><strong><code>certifi</code></strong></td>
+<td><code>requests</code>-ის CA სერტიფიკატები</td>
+<td>სერვერს Let's Encrypt-ის სერტიფიკატი აქვს; certifi-ს განახლებული სია მას ამოწმებს</td>
+</tr>
+<tr>
+<td><strong><code>pytest</code></strong></td>
+<td>ტესტები</td>
+<td>ტესტებს ბაზა, SMTP და ქსელი არ სჭირდება</td>
+</tr>
+<tr>
+<td>სტანდარტული <code>smtplib</code>, <code>urllib</code>, <code>ssl</code></td>
+<td>მეილი, SMS, მიმღებების API</td>
+<td>დამატებითი ბიბლიოთეკა არ სჭირდება; სისტემის CA-ებს იყენებს</td>
+</tr>
+</tbody>
+</table>
+<p>ყველა ვერსია <code>requirements.txt</code>-შია.</p>
+<h3 id="24-რატომ-env">2.4 რატომ <code>.env</code></h3>
+<p>ყველა პაროლი და გასაღები მხოლოდ <code>.env</code>-შია, რომელიც git-ში არ ემატება
+(<code>.gitignore</code>). კოდში და დოკუმენტაციაში საიდუმლო არაფერი წერია. ნიმუში ცარიელი
+მნიშვნელობებით არის <code>.env.example</code>.</p>
+<h2 id="3-ინსტალაცია">3. ინსტალაცია</h2>
+<pre><code>cd /home/sysop/Clone/Seiscomp_Scripts/scalert_event
+python3 -m venv venv
+./venv/bin/pip install -r requirements.txt
+cp .env.example .env
+chmod 600 .env
+chmod +x scalert_event.py recipients/update_recipients.py send_eq2api/send_eq2api.py
+mkdir -p logs
+</code></pre>
+<ul>
+<li><code>chmod 600 .env</code> — <code>.env</code>-ს მხოლოდ მფლობელი კითხულობს, რადგან მასში პაროლებია;</li>
+<li>სკრიპტების პირველი ხაზი (shebang) მიუთითებს <code>venv/bin/python</code>-ზე აბსოლუტური
+  მისამართით. ამიტომ scalert-ს და cron-ს არც <code>source venv/bin/activate</code> სჭირდებათ, არც
+  დამატებითი პარამეტრი.</li>
+</ul>
+<h2 id="4-env-ის-შევსება">4. <code>.env</code>-ის შევსება</h2>
+<p>შეავსე <code>.env</code> ქვემოთ მოცემული რიგით. სრული სია ნაგულისხმევი მნიშვნელობებით:
+<a href="scalert_event_ka.html#10-კონფიგურაცია-env">docs/scalert_event_ka.md, ნაწილი 10</a>.</p>
+<table>
+<thead>
+<tr>
+<th>ჯგუფი</th>
+<th>ცვლადები</th>
+<th>რჩევა</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>SeisComP-ის ბაზა</td>
+<td><code>SC_DB_HOST</code>, <code>SC_DB_USER</code>, <code>SC_DB_PASSWORD</code>, <code>SC_DB_NAME</code></td>
+<td>იგივე ბაზა, რომელშიც <code>scmaster</code> წერს; საკმარისია მხოლოდ <code>SELECT</code> უფლება</td>
+</tr>
+<tr>
+<td>საზღვრების ბაზა</td>
+<td><code>BORDERS_DB_HOST</code>, <code>BORDERS_DB_USER</code>, <code>BORDERS_DB_PASSWORD</code>, <code>BORDERS_DB_NAME</code></td>
+<td>მხოლოდ <code>SELECT</code> უფლება; პაროლი სავალდებულოა</td>
+</tr>
+<tr>
+<td>მეილი</td>
+<td><code>MAIL_SERVER</code>, <code>MAIL_PORT</code>, <code>MAIL_USERNAME</code>, <code>MAIL_PASSWORD</code></td>
+<td>პორტი 587, STARTTLS</td>
+</tr>
+<tr>
+<td>SMS</td>
+<td><code>MAGTI_*</code>, <code>SMSOFFICE_KEY</code>, <code>GSM_SMS_CODE</code></td>
+<td>ცარიელი პროვაიდერი უბრალოდ გამოიტოვება</td>
+</tr>
+<tr>
+<td>მიმღებები</td>
+<td><code>Recp_Exporter_API_URL</code>, <code>Recp_Exporter_API_KEY</code></td>
+<td>—</td>
+</tr>
+<tr>
+<td>საიტი</td>
+<td><code>Send_eq2api_API_URL</code>, <code>Send_eq2api_API_KEY</code>, <code>SeisComp_Publisher_API_KEY</code></td>
+<td>იხ. ნაწილი 2.2</td>
+</tr>
+<tr>
+<td>არხების ჩართვა</td>
+<td><code>SEND_EMAIL</code>, <code>SEND_SMS</code>, <code>SEND_EQ2API</code></td>
+<td><code>0</code> გამორთავს; ნაგულისხმევად ყველა ჩართულია</td>
+</tr>
+<tr>
+<td>უსაფრთხო რეჟიმი</td>
+<td><code>DRY_RUN</code></td>
+<td><code>1</code> — ყველაფერი ითვლება და ლოგში იწერება, მაგრამ არაფერი იგზავნება</td>
+</tr>
+</tbody>
+</table>
+<p><strong>სერტიფიკატები.</strong> <code>*_API_CA</code> ცვლადები <strong>არ</strong> შეავსო. iesdata-ს Let's Encrypt-ის
+სერტიფიკატი აქვს (2026-10-15-დან) და ის სისტემის CA-ებით და <code>certifi</code>-ით მოწმდება.
+<code>Recp_Exporter_API_CA</code> და <code>Send_eq2api_API_CA</code> საჭიროა მხოლოდ მაშინ, თუ სერვერი
+ისევ self-signed სერტიფიკატზე გადავა.</p>
+<h2 id="5-შემოწმება-ჩართვამდე">5. შემოწმება ჩართვამდე</h2>
+<p>ყველა ნაბიჯი უსაფრთხოა: არაფერს აგზავნის და საიტზე არაფერს ცვლის.</p>
+<pre><code># 1. ტესტები (ბაზა, SMTP და ქსელი არ სჭირდება)
+./venv/bin/python -m pytest -q
+
+# 2. მიმღებების API: ნახვა, ფაილები არ იცვლება
+./recipients/update_recipients.py --dry-run
+
+# 3. მიმღებების პირველი ჩამოტვირთვა
+./recipients/update_recipients.py
+
+# 4. საიტის API: მხოლოდ კითხულობს, არის თუ არა მიწისძვრა საიტზე
+./send_eq2api/send_eq2api.py &lt;event_id&gt;
+
+# 5. მთელი გზა რეალური ბაზით, გაგზავნის გარეშე
+./scalert_event.py --dry-run &lt;event_id&gt;
+tail -20 logs/event_scalert.log
+</code></pre>
+<p>რას უნდა ელოდო:</p>
+<table>
+<thead>
+<tr>
+<th>ნაბიჯი</th>
+<th>კარგი შედეგი</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td><code>... passed</code>, შეცდომის გარეშე</td>
+</tr>
+<tr>
+<td>2–3</td>
+<td>მიმღებების რაოდენობა; ლოგში <code>UPDATED</code> ან <code>UNCHANGED</code></td>
+</tr>
+<tr>
+<td>4</td>
+<td><code>... is not on the site.</code> ან მიწისძვრის მონაცემები საიტიდან; <code>HTTP 401</code>/<code>403</code> ნიშნავს, რომ გასაღები ან უფლება არასწორია</td>
+</tr>
+<tr>
+<td>5</td>
+<td>ლოგში <code>RECEIVED</code>, <code>INPUT</code>, <code>DECISION</code> და ბოლოს <code>DONE ... dry_run=True</code> ან <code>DECISION ... NOT SENT</code></td>
+</tr>
+</tbody>
+</table>
+<p><code>&lt;event_id&gt;</code>-ად აიღე ბოლო რეალური მიწისძვრა, მაგ. scolv-იდან ან ბაზიდან:</p>
+<pre><code>mysql -u sysop -p seiscomp -e &quot;SELECT publicID FROM PublicObject p JOIN Event e ON e._oid=p._oid ORDER BY e._oid DESC LIMIT 5&quot;
+</code></pre>
+<h2 id="6-scalert-ში-ჩართვა">6. scalert-ში ჩართვა</h2>
+<p><code>~/seiscomp/etc/scalert.cfg</code> (ან <code>scconfig</code> → Modules → scalert):</p>
+<pre><code>scripts.event = /home/sysop/Clone/Seiscomp_Scripts/scalert_event/scalert_event.py
+</code></pre>
+<p>შემდეგ:</p>
+<pre><code>seiscomp update-config scalert
+seiscomp restart scalert
+</code></pre>
+<ul>
+<li>scalert სკრიპტს იმავე მომხმარებლით უშვებს, რომლითაც თავად მუშაობს (<code>sysop</code>). ამ
+  მომხმარებელს უნდა ჰქონდეს <code>.env</code>-ის წაკითხვის და <code>logs/</code>-ში ჩაწერის უფლება;</li>
+<li><code>scripts.event</code>-ს არგუმენტები არ სჭირდება: scalert თავად გადასცემს <code>event_id</code>-ს;</li>
+<li>პირველი რეალური მიწისძვრის შემდეგ შეამოწმე <code>logs/event_scalert.log</code>.</li>
+</ul>
+<h2 id="7-მიმღებების-ავტომატური-განახლება-cron">7. მიმღებების ავტომატური განახლება (cron)</h2>
+<p><code>crontab -e</code>:</p>
+<pre><code>*/10 * * * * /home/sysop/Clone/Seiscomp_Scripts/scalert_event/recipients/update_recipients.py &gt;/dev/null 2&gt;&amp;1
+</code></pre>
+<p>რატომ: მიმღებები Notify-ის გვერდზე იცვლება. ფაილი ყოველ 10 წუთში ახლდება, ხოლო
+გაგზავნისას ლოკალური ფაილი იკითხება. ამიტომ API-ის დროებითი გათიშვა გაგზავნას არ
+აჩერებს. შედეგი იწერება <code>logs/update_recipients.log</code>-ში.</p>
+<h2 id="8-ყოველდღიური-მუშაობა">8. ყოველდღიური მუშაობა</h2>
+<pre><code>tail -f logs/event_scalert.log                       # მიმდინარე
+grep &quot;event_id=ies2026rudf&quot; logs/event_scalert.log   # ერთი მიწისძვრის ისტორია
+grep &quot; ERROR &quot; logs/event_scalert.log                # მხოლოდ პრობლემები
+</code></pre>
+<p>ყოველი გაშვება ერთ-ერთი ხაზით მთავრდება:</p>
+<table>
+<thead>
+<tr>
+<th>ბოლო ხაზი</th>
+<th>ნიშნავს</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>INFO DONE ... mail=sent sms=sent api=sent</code></td>
+<td>ყველაფერი გაიგზავნა</td>
+</tr>
+<tr>
+<td><code>ERROR DONE ... api=failed</code></td>
+<td>ერთი ან მეტი არხი ჩავარდა; მიზეზი ზედა ხაზშია (<code>API FAILED ...</code>)</td>
+</tr>
+<tr>
+<td><code>INFO DECISION ... NOT SENT</code></td>
+<td>წესებით არავის ეგზავნება; მიზეზი იქვე წერია</td>
+</tr>
+<tr>
+<td><code>INFO SKIPPED</code></td>
+<td>არარეალური მიწისძვრა, ან მაგნიტუდა ჯერ არ აქვს</td>
+</tr>
+<tr>
+<td><code>ERROR FAILED</code></td>
+<td>ვერ დამუშავდა, მაგ. მიწისძვრა ბაზაში ვერ მოიძებნა</td>
+</tr>
+</tbody>
+</table>
+<p>არხის დროებით გამოსართავად (მაგ. SMS პროვაიდერის პრობლემისას) <code>.env</code>-ში ჩაწერე
+<code>SEND_SMS=0</code>. გადატვირთვა არ სჭირდება: <code>.env</code> ყოველ გაშვებაზე იკითხება.</p>
+<h2 id="9-პრობლემები-და-გადაჭრა">9. პრობლემები და გადაჭრა</h2>
+<table>
+<thead>
+<tr>
+<th>ლოგში</th>
+<th>მიზეზი</th>
+<th>რა ვქნათ</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>FAILED event_id=...: event ... not found</code></td>
+<td>მიწისძვრა ამ ბაზაში არ არის, ან <code>scdb</code> ძალიან აგვიანებს</td>
+<td>შეამოწმე <code>SC_DB_*</code>; საჭიროებისას გაზარდე <code>SC_DB_RETRIES</code></td>
+</tr>
+<tr>
+<td><code>WAITING ...</code> რამდენჯერმე, მერე წარმატება</td>
+<td>ნორმალურია: <code>scdb</code> ჯერ წერდა</td>
+<td>არაფერი</td>
+</tr>
+<tr>
+<td><code>CERTIFICATE_VERIFY_FAILED</code></td>
+<td>სერვერის სერტიფიკატი ვერ მოწმდება</td>
+<td><code>./venv/bin/pip install -U certifi</code>; თუ <code>*_API_CA</code> წერია <code>.env</code>-ში და სერვერს Let's Encrypt აქვს, წაშალე</td>
+</tr>
+<tr>
+<td><code>HTTP 401: API key არასწორია</code></td>
+<td>გასაღები არასწორია ან გაუქმდა</td>
+<td>შეამოწმე შესაბამისი <code>*_API_KEY</code></td>
+</tr>
+<tr>
+<td><code>HTTP 403: სერვისს არ აქვს საჭირო უფლება</code></td>
+<td>სერვისს უფლება აკლია</td>
+<td>iesdata-ზე მიეცი <code>can_event_edit</code> / <code>can_event_publish</code> (ნაწილი 2.2)</td>
+</tr>
+<tr>
+<td><code>SeisComp_Publisher_API_KEY is not set</code></td>
+<td><code>.env</code>-ში გასაღები არ არის</td>
+<td>ჩაწერე გასაღები; მანამდე მიწისძვრა საიტზე ემატება, მაგრამ არ ქვეყნდება</td>
+</tr>
+<tr>
+<td><code>API MAGNITUDES SKIPPED ...: Mwp</code></td>
+<td>საიტი ამ მაგნიტუდას არ იცნობს</td>
+<td>თუ საიტზე დაემატა, ჩაამატე <code>SITE_MAGNITUDE_CODES</code>-ში (<code>send_eq2api/send_eq2api.py</code>)</td>
+</tr>
+<tr>
+<td><code>API NOT SENT ...: no magnitude the site knows</code></td>
+<td>არც ერთი მაგნიტუდა საიტის კოდი არ არის</td>
+<td>იგივე</td>
+</tr>
+<tr>
+<td><code>MAIL FAILED</code></td>
+<td>SMTP-ის შეცდომა; traceback ზემოთაა</td>
+<td>შეამოწმე <code>MAIL_*</code>, პაროლი, პორტი</td>
+</tr>
+<tr>
+<td><code>MAIL NOT SENT</code> / <code>SMS NOT SENT</code></td>
+<td>ჯგუფში აქტიური მიმღები არ არის</td>
+<td>შეამოწმე Notify და <code>logs/update_recipients.log</code></td>
+</tr>
+<tr>
+<td><code>SMS FAILED</code></td>
+<td>ზოგ ნომერზე ვერც ერთმა პროვაიდერმა ვერ გაგზავნა</td>
+<td>ზედა ხაზებში ჩანს თითო პროვაიდერის პასუხი</td>
+</tr>
+<tr>
+<td><code>SMS BALANCE LOW</code></td>
+<td>smsoffice-ზე ცოტა SMS დარჩა</td>
+<td>შეავსე ბალანსი</td>
+</tr>
+<tr>
+<td><code>BORDERS_DB_PASSWORD is not set</code></td>
+<td>საზღვრების ბაზის პაროლი არ არის</td>
+<td>ჩაწერე <code>.env</code>-ში</td>
+</tr>
+<tr>
+<td><code>Access denied</code> / <code>Can't connect to MySQL</code></td>
+<td>ბაზის მომხმარებელი, პაროლი ან ჰოსტი</td>
+<td>შეამოწმე <code>mysql -u ... -p</code>-ით</td>
+</tr>
+<tr>
+<td>ლოგი საერთოდ არ ჩნდება</td>
+<td>scalert სკრიპტს არ იძახებს</td>
+<td>შეამოწმე <code>scripts.event</code>, <code>chmod +x</code> და <code>seiscomp status scalert</code></td>
+</tr>
+<tr>
+<td>ლოკაციის ინგლისური სახელი არასწორია</td>
+<td>ბაზაში ასე წერია</td>
+<td>გაასწორე <code>ies_borders</code> ბაზაში (<code>name_en</code>)</td>
+</tr>
+</tbody>
+</table>
+<h2 id="10-განახლება-და-გადატანა">10. განახლება და გადატანა</h2>
+<p>კოდის განახლება:</p>
+<pre><code>git pull
+./venv/bin/pip install -r requirements.txt
+./venv/bin/python -m pytest -q
+</code></pre>
+<p>თუ <code>.env.example</code>-ში ახალი ცვლადი გამოჩნდა, ის <code>.env</code>-შიც უნდა ჩაემატოს.</p>
+<p><strong>სხვა საქაღალდეში ან სერვერზე გადატანისას:</strong></p>
+<ol>
+<li>შეცვალე shebang (პირველი ხაზი) სამ ფაილში: <code>scalert_event.py</code>,
+   <code>recipients/update_recipients.py</code>, <code>send_eq2api/send_eq2api.py</code>;</li>
+<li>თავიდან შექმენი <code>venv</code> (ნაწილი 3), რადგან venv სხვა მისამართზე არ მუშაობს;</li>
+<li>გადაიტანე <code>.env</code> უსაფრთხო გზით (არა git-ით და არა ჩატით);</li>
+<li>შეცვალე მისამართი <code>scripts.event</code>-ში და cron-ში.</li>
+</ol>
+<h2 id="11-დოკუმენტაციის-განახლება">11. დოკუმენტაციის განახლება</h2>
+<p>სრული დოკუმენტაცია <code>docs/</code>-შია სამ ფორმატში. წყაროა <code>.md</code> ფაილი, HTML და PDF მისგან
+იქმნება:</p>
+<table>
+<thead>
+<tr>
+<th>ფაილი</th>
+<th>რა არის</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>docs/scalert_event_ka.md</code>, <code>.html</code>, <code>.pdf</code></td>
+<td>სრული დოკუმენტაცია, ქართულად</td>
+</tr>
+<tr>
+<td><code>docs/scalert_event_en.md</code>, <code>.html</code>, <code>.pdf</code></td>
+<td>სრული დოკუმენტაცია, ინგლისურად</td>
+</tr>
+<tr>
+<td><code>docs/setup_ka.html</code>, <code>.pdf</code></td>
+<td>ეს ინსტრუქცია</td>
+</tr>
+<tr>
+<td><code>docs/index.html</code></td>
+<td>ყველა ფაილის სია</td>
+</tr>
+</tbody>
+</table>
+<p><code>.md</code>-ის შეცვლის შემდეგ:</p>
+<pre><code>./venv/bin/pip install -r docs/requirements.txt    # ერთხელ
+./venv/bin/python docs/build_docs.py
+</code></pre>
+<p>PDF-ისთვის საჭიროა Google Chrome ან Chromium.</p>
+</body>
+</html>

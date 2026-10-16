@@ -14,7 +14,8 @@ def make_assessment():
     def make(audience=Audience.ALL, magnitude=3.2, location="საქართველო. ქალაქი გორი:5კმ."):
         return EventAssessment(
             audience=audience,
-            publish=audience is Audience.ALL,
+            publish_iliauni=audience is Audience.ALL,
+            send_api=audience is not None,
             location_ge=location if audience else None,
             ev_mode="Automatic",
             magnitude_type="ML",

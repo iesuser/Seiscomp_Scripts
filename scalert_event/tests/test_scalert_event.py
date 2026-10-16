@@ -1,3 +1,4 @@
+import logging
 from dataclasses import replace
 from datetime import datetime
 
@@ -31,7 +32,7 @@ def settings(tmp_path, monkeypatch):
 @pytest.fixture
 def channels(monkeypatch):
     """Fake mail, SMS and site API; records what each channel was asked to send."""
-    sent = {"mail": [], "sms": [], "sms_kwargs": [], "api": []}
+    sent = {"mail": [], "sms": [], "sms_kwargs": [], "api": [], "published": []}
 
     def fake_mail(result, lat, lon, **kwargs):
         sent["mail"].append(result)
@@ -48,7 +49,11 @@ def channels(monkeypatch):
 
         def add_event(self, payload):
             sent["api"].append(payload)
-            return {"id": 1, "created": True}
+            return {"id": 1, "created": True, "is_published": False}
+
+        def publish_event(self, event_id):
+            sent["published"].append(event_id)
+            return {"published": True}
 
     monkeypatch.setattr(scalert_event, "send_event_mail", fake_mail)
     monkeypatch.setattr(scalert_event, "send_event_sms", fake_sms)
@@ -127,7 +132,7 @@ def test_sms_can_be_turned_off(run, settings, channels):
     assert len(channels["mail"]) == 1 and channels["sms"] == []
 
 
-def test_published_event_is_added_to_api(run, channels):
+def test_event_for_everyone_is_added_to_api(run, channels):
     run()
     assert channels["api"] == [{
         "seiscomp_oid": "ies1",
@@ -158,8 +163,15 @@ def test_event_without_site_magnitude_is_not_added_to_api(run, channels):
     assert channels["api"] == []
 
 
-def test_staff_only_event_is_not_added_to_api(run, make_assessment, channels):
-    run(assessment=make_assessment(Audience.STAFF, 2.9))
+def test_staff_only_event_is_added_to_api_too(run, make_assessment, channels):
+    staff = make_assessment(Audience.STAFF, 2.9)
+    assert staff.publish_iliauni is False
+    run(assessment=staff)
+    assert len(channels["api"]) == 1
+
+
+def test_event_nobody_is_notified_about_is_not_added_to_api(run, make_assessment, channels):
+    run(assessment=make_assessment(None))
     assert channels["api"] == []
 
 
@@ -201,6 +213,46 @@ def test_main_logs_failure_and_returns_error(monkeypatch, settings):
     assert "FAILED event_id=ies1" in log
     assert "db down" in log
     assert "Traceback" in log
+
+
+def test_done_line_summarises_every_channel(run, caplog):
+    caplog.set_level(logging.INFO)
+    run()
+    done = [r for r in caplog.records if r.getMessage().startswith("DONE")]
+    assert len(done) == 1 and done[0].levelno == logging.INFO
+    assert done[0].getMessage().startswith("DONE event_id=ies1 mail=sent sms=sent api=sent dry_run=False duration=")
+
+
+def test_api_error_is_one_line_and_main_adds_no_second_traceback(monkeypatch, settings, make_assessment, channels):
+    class BrokenEventApiClient:
+        def __init__(self, settings):
+            pass
+
+        def add_event(self, payload):
+            raise EventApiError("POST /api/seismic_events/ failed with HTTP 403: no permission", 403)
+
+    monkeypatch.setattr(scalert_event, "EventApiClient", BrokenEventApiClient)
+    monkeypatch.setattr(scalert_event, "load_event", lambda *a, **k: EVENT)
+    monkeypatch.setattr(scalert_event, "process_event", lambda *a, **k: make_assessment())
+    assert scalert_event.main(["ies1"]) == scalert_event.EXIT_FAILED
+
+    log = settings.log_file.read_text(encoding="utf-8")
+    assert "ERROR API FAILED event_id=ies1: POST /api/seismic_events/ failed with HTTP 403: no permission" in log
+    assert "ERROR DONE event_id=ies1 mail=sent sms=sent api=failed" in log
+    assert "Traceback" not in log
+    assert "ERROR FAILED event_id=ies1" not in log
+
+
+def test_unexpected_channel_error_keeps_its_traceback(run, monkeypatch, caplog):
+    def broken_mail(*args, **kwargs):
+        raise OSError("smtp down")
+
+    monkeypatch.setattr(scalert_event, "send_event_mail", broken_mail)
+    with pytest.raises(scalert_event.ChannelsFailed):
+        run()
+    failure = next(r for r in caplog.records if r.getMessage().startswith("MAIL FAILED"))
+    assert failure.getMessage() == "MAIL FAILED event_id=ies1: unexpected error"
+    assert failure.exc_info[1].args == ("smtp down",)
 
 
 def test_event_not_in_database_is_one_line_without_traceback(monkeypatch, settings):

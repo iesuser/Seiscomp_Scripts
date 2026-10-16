@@ -75,9 +75,14 @@ class Decision:
         return self.audience is not None
 
     @property
-    def publish(self) -> bool:
-        """Staff-only events are never published to the public site."""
+    def publish_iliauni(self) -> bool:
+        """Whether the event is published on the iliauni site; never for staff-only events."""
         return self.audience is Audience.ALL
+
+    @property
+    def send_api(self) -> bool:
+        """Every event that matched a rule goes to the iesdata site, whoever is notified."""
+        return self.send
 
 
 def decide(

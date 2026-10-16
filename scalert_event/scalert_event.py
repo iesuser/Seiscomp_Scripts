@@ -13,36 +13,49 @@ Manual run (no scalert):
     ./scalert_event.py ies2026rudf
     ./scalert_event.py --dry-run ies2026rudf     # decide and log, send nothing
 
-Every step goes to logs/event_scalert.log, one keyword per line:
+Every step goes to logs/event_scalert.log, one keyword per line, each with
+event_id=... so `grep event_id=ies2026rudf` shows one event's whole story:
     RECEIVED   the script was called, with its arguments
     WAITING    the event is not fully in the database yet, retrying
     INPUT      the event data the decision is based on
-    SKIPPED    not processed (not a real event / no magnitude)
     DECISION   SEND or NOT SENT, with the Georgian reason
     MAIL ...   email recipients and delivery result
     SMS ...    SMS numbers, per-gateway result and delivery result
-    API ...    publishable event added to / updated on the iesdata site
-    FAILED     an exception, with traceback
+    API ...    the event on the iesdata site and on WordPress
+Every run ends with exactly one of:
+    SKIPPED    not processed (not a real event / no magnitude)
+    DECISION   ... NOT SENT
+    DONE       result per channel and total time; ERROR level if a channel failed
+    FAILED     the event could not be processed; a traceback only for unexpected errors
 """
 
 import argparse
 import logging
 import sys
+import time
 
 from automate_events import process_event
 from config import Settings, load_settings
 from seiscomp_db import EventNotReady, load_event
 from send_eq2api.event_sender import send_event_api
-from send_eq2api.send_eq2api import EventApiClient
+from send_eq2api.send_eq2api import EventApiClient, EventApiError
 from send_notification.ies_mail_sender import send_event_mail
 from send_notification.ies_sms_sender import SmsSender, send_event_sms
 from send_notification.mailer import Mailer
+from send_notification.recipients import RecipientsError
 
 logger = logging.getLogger("scalert_event")
 
 EXIT_OK = 0
 EXIT_FAILED = 1
 EXIT_BAD_ARGS = 2
+
+# Channel errors whose message already says what went wrong; logged without a traceback.
+EXPECTED_CHANNEL_ERRORS = (EventApiError, RecipientsError)
+
+
+class ChannelsFailed(RuntimeError):
+    """At least one channel failed; each failure is already logged."""
 
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
@@ -75,10 +88,13 @@ def setup_logging(settings: Settings) -> None:
     root = logging.getLogger()
     root.addHandler(handler)
     root.setLevel(getattr(logging, settings.log_level, logging.INFO))
+    # With LOG_LEVEL=DEBUG these would add a line per HTTP connection.
+    logging.getLogger("urllib3").setLevel(logging.WARNING)
 
 
 def process(event_id: str, settings: Settings, *, dry_run: bool) -> None:
     """Load, decide and (if needed) send for one event. Raises on failure."""
+    started = time.monotonic()
     context = f"event_id={event_id}"
     event = load_event(
         event_id,
@@ -117,8 +133,8 @@ def process(event_id: str, settings: Settings, *, dry_run: bool) -> None:
         )
         return
     logger.info(
-        "DECISION %s SEND to=%s publish=%s magnitude=%s%s local_time=%s location=%s reason: %s",
-        context, result.audience, result.publish, result.magnitude, result.magnitude_type,
+        "DECISION %s SEND to=%s publish_iliauni=%s send_api=%s magnitude=%s%s local_time=%s location=%s reason: %s",
+        context, result.audience, result.publish_iliauni, result.send_api, result.magnitude, result.magnitude_type,
         result.local_time, result.location_ge, result.reason,
     )
 
@@ -150,15 +166,27 @@ def process(event_id: str, settings: Settings, *, dry_run: bool) -> None:
             dry_run=dry_run,
         )))
 
-    failed = []
+    # One channel failing must not stop the others.
+    results = {}
     for name, send in channels:
         try:
-            send()
+            results[name] = "sent" if send() else "not_sent"
+        except EXPECTED_CHANNEL_ERRORS as exc:
+            logger.error("%s FAILED %s: %s", name, context, exc)
+            results[name] = "failed"
         except Exception:
-            logger.exception("%s FAILED %s", name, context)
-            failed.append(name)
+            logger.exception("%s FAILED %s: unexpected error", name, context)
+            results[name] = "failed"
+
+    failed = [name for name, status in results.items() if status == "failed"]
+    logger.log(
+        logging.ERROR if failed else logging.INFO,
+        "DONE %s %s dry_run=%s duration=%.1fs",
+        context, " ".join(f"{name.lower()}={status}" for name, status in results.items()) or "no_channels",
+        dry_run, time.monotonic() - started,
+    )
     if failed:
-        raise RuntimeError(f"notification channel(s) failed: {', '.join(failed)}")
+        raise ChannelsFailed(f"channel(s) failed: {', '.join(failed)}")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -183,6 +211,8 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         process(args.event_id, settings, dry_run=dry_run)
+    except ChannelsFailed:
+        return EXIT_FAILED
     except EventNotReady as exc:
         # Expected when scdb never wrote the event; a traceback would add nothing.
         logger.error("FAILED %s: %s", context, exc)
