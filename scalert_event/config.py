@@ -87,9 +87,8 @@ class RecipientsApiSettings:
 
     base_url: str
     api_key: str
-    # The server uses a self-signed certificate, so it is verified against this
-    # file; when the file does not exist the system CA store is used instead.
-    ca_file: Path
+    # Only needed for a self-signed server certificate; None means the system CA store.
+    ca_file: Path | None
     timeout_s: float
 
 
@@ -103,6 +102,8 @@ class Settings:
     sms_recipients_file: Path
     send_email: bool
     send_sms: bool
+    # Publishable events are also added to the iesdata site (send_eq2api).
+    send_eq2api: bool
     log_file: Path
     log_level: str
     dry_run: bool
@@ -149,15 +150,16 @@ def load_settings() -> Settings:
             gsm_code=os.getenv("GSM_SMS_CODE", ""),
         ),
         recipients_api=RecipientsApiSettings(
-            base_url=os.getenv("RECIPIENTS_API_URL", "https://iesdata.iliauni.edu.ge:3030/"),
-            api_key=os.getenv("RECIPIENTS_API_KEY", ""),
-            ca_file=_path_setting("RECIPIENTS_API_CA", BASE_DIR / "recipients" / "iesdata_ca.pem"),
-            timeout_s=float(os.getenv("RECIPIENTS_API_TIMEOUT") or 20),
+            base_url=os.getenv("Recp_Exporter_API_URL", "https://iesdata.iliauni.edu.ge:3030/"),
+            api_key=os.getenv("Recp_Exporter_API_KEY", ""),
+            ca_file=_path_setting("Recp_Exporter_API_CA", "") if os.getenv("Recp_Exporter_API_CA") else None,
+            timeout_s=float(os.getenv("Recp_Exporter_API_TIMEOUT") or 20),
         ),
         recipients_file=_path_setting("RECIPIENTS_FILE", BASE_DIR / "recipients" / "email_recipients.json"),
         sms_recipients_file=_path_setting("SMS_RECIPIENTS_FILE", BASE_DIR / "recipients" / "sms_recipients.json"),
         send_email=_flag("SEND_EMAIL", default=True),
         send_sms=_flag("SEND_SMS", default=True),
+        send_eq2api=_flag("SEND_EQ2API", default=True),
         log_file=_path_setting("LOG_FILE", BASE_DIR / "logs" / "event_scalert.log"),
         log_level=os.getenv("LOG_LEVEL", "INFO").upper(),
         dry_run=_flag("DRY_RUN"),

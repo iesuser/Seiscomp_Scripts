@@ -16,8 +16,8 @@ has no active entry unless --allow-empty is given: if the API is down or
 returns nothing, the previous recipients stay in place. Each file is checked
 separately. Log: logs/update_recipients.log.
 
-API settings come from `.env`: RECIPIENTS_API_URL, RECIPIENTS_API_KEY,
-RECIPIENTS_API_CA (the server's self-signed certificate).
+API settings come from `.env`: Recp_Exporter_API_URL, Recp_Exporter_API_KEY and,
+only for a self-signed server certificate, Recp_Exporter_API_CA.
 """
 
 import argparse
@@ -46,7 +46,7 @@ class RecipientsApiError(RuntimeError):
 
 
 def recips_url(base_url: str) -> str:
-    """Endpoint URL; RECIPIENTS_API_URL may be the server root or the endpoint itself."""
+    """Endpoint URL; Recp_Exporter_API_URL may be the server root or the endpoint itself."""
     base = base_url.rstrip("/")
     if base.endswith("/api/recips"):
         return base + "/"
@@ -60,13 +60,13 @@ def fetch_recips(api: RecipientsApiSettings) -> list[dict]:
         RecipientsApiError: no API key, HTTP/network/TLS error, or malformed JSON.
     """
     if not api.api_key:
-        raise RecipientsApiError("RECIPIENTS_API_KEY is not set")
+        raise RecipientsApiError("Recp_Exporter_API_KEY is not set")
     request = urllib.request.Request(
         recips_url(api.base_url),
         headers={"Accept": "application/json", "X-API-Key": api.api_key},
         method="GET",
     )
-    context = ssl.create_default_context(cafile=api.ca_file if api.ca_file.exists() else None)
+    context = ssl.create_default_context(cafile=api.ca_file)
     try:
         with urllib.request.urlopen(request, timeout=api.timeout_s, context=context) as response:
             payload = json.loads(response.read().decode("utf-8"))
