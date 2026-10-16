@@ -32,8 +32,10 @@ class EventAssessment:
     Attributes:
         audience: Who gets the notification: `Audience.ALL`, `Audience.STAFF`,
             or None when nobody is notified.
-        publish: Whether the event may be published on the public website.
+        publish_iliauni: Whether the event is published on the iliauni site.
             Always False for staff-only events.
+        send_api: Whether the event is added to the iesdata site (send_eq2api).
+            True whenever a rule matched, i.e. someone is notified.
         location_ge: Georgian location text used in the notification, or None
             when nothing is sent.
         ev_mode: "Automatic" or "Manual", as shown in the notification text.
@@ -46,7 +48,8 @@ class EventAssessment:
     """
 
     audience: Audience | None
-    publish: bool
+    publish_iliauni: bool
+    send_api: bool
     location_ge: str | None
     ev_mode: str
     magnitude_type: str
@@ -65,7 +68,8 @@ class EventAssessment:
         return {
             "send": self.send,
             "audience": self.audience.value if self.audience else None,
-            "publish": self.publish,
+            "publish_iliauni": self.publish_iliauni,
+            "send_api": self.send_api,
             "location_ge": self.location_ge,
             "location_en": self.location_en,
             "ev_mode": self.ev_mode,
@@ -124,7 +128,8 @@ def process_event(
 
     return EventAssessment(
         audience=decision.audience,
-        publish=decision.publish,
+        publish_iliauni=decision.publish_iliauni,
+        send_api=decision.send_api,
         location_ge=decision.location_ge,
         ev_mode=ev_mode,
         magnitude_type=magnitude_type,

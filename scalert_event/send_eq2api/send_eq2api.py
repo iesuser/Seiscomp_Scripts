@@ -2,7 +2,11 @@
 # -*- coding: utf-8 -*-
 """Client for the seismic events API of the iesdata site.
 
-`EventApiClient.add_event(event)` makes the site match `event`:
+`EventApiClient.add_event(event)` makes the site match `event`;
+`publish_event(event_id)` / `unpublish_event(event_id)` then show it on, or
+remove it from, WordPress.
+
+`add_event` works in these steps:
 
     1. the event is validated; nothing is sent if it is invalid (ValueError);
     2. the site is searched for an event with the same `seiscomp_oid`;
@@ -36,9 +40,14 @@ Endpoints used (all with the X-API-Key header):
     DELETE /api/seismic_events/{id}                      rollback of a failed create
     POST   /api/seismic_events/{id}/magnitudes           add a magnitude
     PUT    /api/seismic_events/magnitudes/{magnitude_id} change a magnitude's value
+    POST   /api/publish_events/publish/{id}              publish (or update) on WordPress
+    POST   /api/publish_events/unpublish/{id}            remove from WordPress
+
+The full API description is served at /swagger.json.
 
 Settings come from `.env` (see `config.EventApiSettings`): Send_eq2api_API_URL,
-Send_eq2api_API_KEY and, only for a self-signed server certificate, Send_eq2api_API_CA.
+Send_eq2api_API_KEY (needs can_event_edit), SeisComp_Publisher_API_KEY (needs
+can_event_publish) and, only for a self-signed server certificate, Send_eq2api_API_CA.
 
 Manual, read-only lookup of an event on the site:
     ./send_eq2api/send_eq2api.py ies2026ufhk
@@ -73,10 +82,10 @@ TEXT_FIELDS = {
 # Any other key (e.g. a typo) is rejected instead of being silently ignored by the site.
 ALLOWED_FIELDS = frozenset({*REQUIRED_FIELDS, *TEXT_FIELDS, "depth", "magnitudes", "is_automatic"})
 
-# Shown instead of the API's own message for these statuses.
+# Shown before the API's own message for these statuses.
 HTTP_ERRORS = {
     401: "API key არასწორია",
-    403: "სერვისს არ აქვს can_event_edit უფლება",
+    403: "სერვისს არ აქვს საჭირო უფლება",
 }
 
 
@@ -153,7 +162,8 @@ class EventApiClient:
     def add_event(self, event: dict) -> dict:
         """Create `event` on the site, or update it if its seiscomp_oid is already there.
 
-        Returns {"id": site event id, "created": True if it was new}.
+        Returns {"id": site event id, "created": True if it was new,
+                 "is_published": whether it is on WordPress (always False for a new event)}.
 
         Raises:
             ValueError: `event` is invalid; nothing was sent.
@@ -165,9 +175,32 @@ class EventApiClient:
 
         existing = self.find_event(event["seiscomp_oid"])
         if existing is None:
-            return {"id": self._create(fields, magnitudes), "created": True}
+            return {"id": self._create(fields, magnitudes), "created": True, "is_published": False}
         self._update(existing, fields, magnitudes)
-        return {"id": existing["id"], "created": False}
+        return {"id": existing["id"], "created": False, "is_published": bool(existing.get("is_published"))}
+
+    def publish_event(self, event_id: int) -> dict:
+        """Publish the site event `event_id` on WordPress, or update it there if already published.
+
+        Returns the API response ({"message", "event_id", "published", "wp_response", "event"}).
+
+        Raises:
+            EventApiError: the API failed, or answered that the event was not published.
+        """
+        data = self._request("POST", f"/api/publish_events/publish/{event_id}", publisher=True)
+        if not data.get("published"):
+            raise EventApiError(f"Event #{event_id} was not published: {data.get('message') or 'no reason given'}")
+        return data
+
+    def unpublish_event(self, event_id: int) -> dict:
+        """Remove the site event `event_id` from WordPress; it stays on the site itself.
+
+        Returns the API response ({"message", "event_id", "published", "wp_response", "event"}).
+
+        Raises:
+            EventApiError: the API failed.
+        """
+        return self._request("POST", f"/api/publish_events/unpublish/{event_id}", publisher=True)
 
     def find_event(self, seiscomp_oid: str) -> dict | None:
         """The site's event with exactly this seiscomp_oid, or None."""
@@ -224,16 +257,23 @@ class EventApiClient:
             "POST", f"/api/seismic_events/{event_id}/magnitudes", {"magnitude_code": code, "value": value},
         )
 
-    def _request(self, method: str, path: str, payload: dict | None = None) -> dict:
-        """Send one request and return the JSON response (an empty dict if it is not JSON)."""
-        if not self.settings.api_key:
-            raise EventApiError("Send_eq2api_API_KEY is not set")
+    def _request(self, method: str, path: str, payload: dict | None = None, *, publisher: bool = False) -> dict:
+        """Send one request and return the JSON response (an empty dict if it is not JSON).
+
+        `publisher` selects the publishing key instead of the editing one.
+        """
+        if publisher:
+            api_key, key_name = self.settings.publisher_api_key, "SeisComp_Publisher_API_KEY"
+        else:
+            api_key, key_name = self.settings.api_key, "Send_eq2api_API_KEY"
+        if not api_key:
+            raise EventApiError(f"{key_name} is not set")
         try:
             response = self._session.request(
                 method,
                 f"{self._base_url}{path}",
                 json=payload,
-                headers={"X-API-Key": self.settings.api_key},
+                headers={"X-API-Key": api_key},
                 timeout=self.settings.timeout_s,
                 verify=str(self.settings.ca_file) if self.settings.ca_file else True,
             )
@@ -248,7 +288,9 @@ class EventApiClient:
             data = {}
 
         if not response.ok:
-            message = HTTP_ERRORS.get(response.status_code) or data.get("message") or "Unknown API error"
+            message = " — ".join(
+                text for text in (HTTP_ERRORS.get(response.status_code), data.get("message")) if text
+            ) or "Unknown API error"
             raise EventApiError(
                 f"{method} {path} failed with HTTP {response.status_code}: {message}", response.status_code,
             )

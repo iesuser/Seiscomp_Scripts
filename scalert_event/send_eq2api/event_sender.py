@@ -2,7 +2,12 @@
 
 Turns a SeisComP event and its assessment into the site's event format
 (`build_event_payload`) and hands it to `EventApiClient`, logging each step
-with an API ... keyword. Only events the rules allow to publish are sent.
+with an API ... keyword. Both decisions come from the rules:
+
+    send_api         the event is added to (or updated on) the site
+    publish_iliauni  it is then also published (or updated) on WordPress; when
+                     False, an event published by an earlier calculation is
+                     removed from WordPress again
 """
 
 import logging
@@ -63,28 +68,45 @@ def send_event_api(
     context: str = "",
     dry_run: bool = False,
 ) -> bool:
-    """Add the event to the site, or update it there. Returns True if the site was changed.
+    """Add the event to the site, or update it there, then publish or unpublish it as the rules say.
+
+    Returns True if the site was changed. If (un)publishing fails, the event stays
+    on the site in its previous WordPress state and the error is raised; the next
+    recalculation retries.
 
     Raises:
         ValueError: the payload is invalid (a bug: `build_event_payload` should prevent it).
         EventApiError: the API failed.
     """
-    if not assessment.publish:
+    if not assessment.send_api:
         return False
 
     magnitudes, skipped = site_magnitudes(event.magnitudes)
     if skipped:
-        logger.info("API %s magnitude type(s) unknown to the site, not sent: %s", context, ", ".join(skipped))
+        logger.info("API MAGNITUDES SKIPPED %s: unknown to the site: %s", context, ", ".join(skipped))
     if not magnitudes:
         logger.warning("API NOT SENT %s: no magnitude the site knows", context)
         return False
 
     payload = build_event_payload(event, assessment, magnitudes)
-    logger.info("API SENDING %s payload=%s", context, payload)
+    logger.info("API SENDING %s publish_iliauni=%s payload=%s", context, assessment.publish_iliauni, payload)
     if dry_run:
         logger.info("API DRY RUN %s: nothing sent", context)
         return False
 
     result = client.add_event(payload)
     logger.info("API %s %s site_id=%s", "CREATED" if result["created"] else "UPDATED", context, result["id"])
+
+    if assessment.publish_iliauni:
+        response = client.publish_event(result["id"])
+        logger.info(
+            "API PUBLISHED %s site_id=%s message=%r wp_response=%r",
+            context, result["id"], response.get("message"), response.get("wp_response"),
+        )
+    elif result["is_published"]:
+        response = client.unpublish_event(result["id"])
+        logger.info(
+            "API UNPUBLISHED %s site_id=%s reason=publish_iliauni=False message=%r wp_response=%r",
+            context, result["id"], response.get("message"), response.get("wp_response"),
+        )
     return True

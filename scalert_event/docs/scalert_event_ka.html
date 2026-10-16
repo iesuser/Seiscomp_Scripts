@@ -1,0 +1,1118 @@
+<!DOCTYPE html>
+<html lang="ka">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>scalert_event — სრული დოკუმენტაცია</title>
+<style>
+body { font-family: "Noto Sans Georgian", "DejaVu Sans", sans-serif; font-size: 15px;
+       line-height: 1.55; color: #1f2328; max-width: 980px; margin: 0 auto; padding: 24px 32px; }
+h1 { border-bottom: 2px solid #0b5394; padding-bottom: 6px; color: #0b5394; }
+h2 { border-bottom: 1px solid #d0d7de; padding-bottom: 4px; margin-top: 2em; color: #0b5394; }
+h3 { margin-top: 1.5em; }
+a { color: #0b5394; }
+code { font-family: "DejaVu Sans Mono", monospace; font-size: 0.88em; background: #f2f4f7;
+       padding: 1px 4px; border-radius: 3px; }
+pre { background: #f6f8fa; border: 1px solid #d0d7de; border-radius: 6px; padding: 10px 12px;
+      overflow-x: auto; line-height: 1.35; }
+pre code { background: none; padding: 0; font-size: 12.5px; }
+table { border-collapse: collapse; margin: 12px 0; width: 100%; }
+th, td { border: 1px solid #d0d7de; padding: 5px 9px; vertical-align: top; text-align: left; }
+th { background: #eef2f7; }
+tr:nth-child(even) td { background: #fafbfc; }
+@page { size: A4; margin: 16mm 14mm; }
+@media print {
+  body { max-width: none; padding: 0; font-size: 11pt; }
+  pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+  pre code { font-size: 8pt; }
+  h2 { break-before: auto; break-after: avoid; }
+  h3 { break-after: avoid; }
+  tr, pre { break-inside: avoid; }
+}
+</style>
+</head>
+<body>
+<h1 id="scalert_event--სრული-დოკუმენტაცია">scalert_event — სრული დოკუმენტაცია</h1>
+<p><a href="scalert_event_en.html">English version</a> · <a href="setup_ka.html">გამართვის ინსტრუქცია</a></p>
+<p><code>scalert_event</code> ავტომატურად აგზავნის შეტყობინებას SeisComP-ის მიწისძვრაზე. <code>scalert</code>
+იძახებს ჩვენს სკრიპტს და გადასცემს <code>event_id</code>-ს. სკრიპტი SeisComP-ის ბაზიდან იღებს
+მიწისძვრის პარამეტრებს და წესების მიხედვით წყვეტს, ვის ეგზავნება შეტყობინება. შემდეგ
+აგზავნის მეილს და SMS-ს, მიწისძვრას ამატებს iesdata საიტზე და, საჭიროებისას, აქვეყნებს
+WordPress-ზე.</p>
+<p>ეს დოკუმენტი აღწერს, <strong>როგორ მუშაობს</strong> სისტემა. ინსტალაცია, <code>.env</code>-ის შევსება და
+პრობლემების გადაჭრა აღწერილია <a href="setup_ka.html">გამართვის ინსტრუქციაში</a>.</p>
+<h2 id="შინაარსი">შინაარსი</h2>
+<ol>
+<li><a href="#1-მოკლედ">მოკლედ</a></li>
+<li><a href="#2-როგორ-იძახებს-scalert-სკრიპტს">როგორ იძახებს scalert სკრიპტს</a></li>
+<li><a href="#3-შესვლის-წერტილი-scalert_eventpy">შესვლის წერტილი: <code>scalert_event.py</code></a></li>
+<li><a href="#4-მონაცემები-seiscomp-ის-ბაზიდან-seiscomp_dbpy">მონაცემები SeisComP-ის ბაზიდან: <code>seiscomp_db.py</code></a></li>
+<li><a href="#5-გადაწყვეტილება-automate_events">გადაწყვეტილება: <code>automate_events/</code></a></li>
+<li><a href="#6-ერთი-მიწისძვრის-განმეორებითი-გადათვლები">ერთი მიწისძვრის განმეორებითი გადათვლები</a></li>
+<li><a href="#7-მეილი-და-sms-send_notification">მეილი და SMS: <code>send_notification/</code></a></li>
+<li><a href="#8-iesdata-საიტი-და-wordpress-send_eq2api">iesdata საიტი და WordPress: <code>send_eq2api/</code></a></li>
+<li><a href="#9-ლოგი">ლოგი</a></li>
+<li><a href="#10-კონფიგურაცია-env">კონფიგურაცია: <code>.env</code></a></li>
+<li><a href="#11-მიმღებები">მიმღებები</a></li>
+<li><a href="#12-ტესტები">ტესტები</a></li>
+<li><a href="#13-ფაილების-სტრუქტურა">ფაილების სტრუქტურა</a></li>
+</ol>
+<h2 id="1-მოკლედ">1. მოკლედ</h2>
+<pre><code>SeisComP (scautoloc / scevent / scmag ...)
+        │  ახალი ან განახლებული მიწისძვრა
+        ▼
+scalert ──► scalert_event.py &quot;&lt;message&gt;&quot; &lt;flag&gt; &lt;event_id&gt; &lt;arrivals&gt; &lt;magnitude&gt;
+                 │
+                 ▼
+          [1] არგუმენტები, ლოგი RECEIVED
+                 │
+                 ▼
+          [2] seiscomp_db.load_event(event_id)       SeisComP-ის MySQL ბაზა
+                 │   EventData: დრო, lat, lon, სიღრმე, რეჟიმი, მაგნიტუდები
+                 ▼
+          [3] automate_events.process_event(...)     გადაწყვეტილება
+                 │      ├── rules.py                 ვის ეგზავნება და რატომ
+                 │      ├── location.py              ლოკაციის ტექსტი (ქართ. და ინგლ.)
+                 │      ├── acceleration.py          რამდენად იგრძნობა
+                 │      └── borders_db.py + geo.py   ies_borders ბაზა, გეომეტრია
+                 │   EventAssessment: audience, send_api, publish_iliauni, location, reason
+                 ▼  მხოლოდ თუ audience არის all ან staff
+          [4] არხები, ერთმანეთისგან დამოუკიდებლად
+                 ├── MAIL  send_notification/ies_mail_sender   email_recipients.json
+                 ├── SMS   send_notification/ies_sms_sender    sms_recipients.json
+                 └── API   send_eq2api/event_sender            iesdata საიტი → WordPress
+                 │
+                 ▼
+          [5] ლოგი DONE: თითო არხის შედეგი
+</code></pre>
+<p><strong>პრინციპი: გადაწყვეტილება და გაგზავნა ცალ-ცალკეა.</strong> <code>automate_events</code> მხოლოდ წყვეტს და
+არაფერს აგზავნის. <code>send_notification</code> და <code>send_eq2api</code> მხოლოდ აგზავნიან და არაფერს წყვეტენ.
+ამიტომ ახალი წესი მხოლოდ <code>rules.py</code>-ში ემატება, ახალი არხი (მაგ. Telegram) კი ცალკე
+მოდულად. ერთი მეორეზე გავლენას არ ახდენს.</p>
+<p><strong>არხები ერთმანეთს არ აჩერებენ.</strong> თუ ერთი ჩავარდა, დანარჩენები მაინც იგზავნება, ხოლო
+ჩავარდნა ლოგში და გამოსვლის კოდში ჩანს.</p>
+<h2 id="2-როგორ-იძახებს-scalert-სკრიპტს">2. როგორ იძახებს scalert სკრიპტს</h2>
+<p><code>scalert</code> მიწისძვრის შექმნისას და ყოველი განახლებისას უშვებს <code>scripts.event</code>-ში
+მითითებულ სკრიპტს შემდეგი არგუმენტებით:</p>
+<table>
+<thead>
+<tr>
+<th>არგუმენტი</th>
+<th>მნიშვნელობა</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>$1</code></td>
+<td>ტექსტური შეტყობინება (scalert-ის ფორმატით)</td>
+</tr>
+<tr>
+<td><code>$2</code></td>
+<td><code>1</code> — ახალი მიწისძვრა, <code>0</code> — განახლება</td>
+</tr>
+<tr>
+<td><code>$3</code></td>
+<td>მიწისძვრის publicID, მაგ. <code>ies2026rudf</code> — <strong>ეს არის <code>event_id</code></strong></td>
+</tr>
+<tr>
+<td><code>$4</code></td>
+<td>arrival-ების (ფაზების) რაოდენობა</td>
+</tr>
+<tr>
+<td><code>$5</code></td>
+<td>მაგნიტუდა (შეიძლება არ იყოს)</td>
+</tr>
+</tbody>
+</table>
+<p>სკრიპტი მხოლოდ <code>$3</code>-ს ეყრდნობა. <code>$1</code>, <code>$2</code>, <code>$4</code> და <code>$5</code> ლოგში იწერება, მაგრამ
+გადაწყვეტილებისთვის ყველა პარამეტრი ბაზიდან იკითხება, რომ ერთ წყაროს ეყრდნობოდეს.</p>
+<p>ხელით გაშვება (scalert-ის გარეშე):</p>
+<pre><code>./scalert_event.py ies2026rudf
+./scalert_event.py --dry-run ies2026rudf     # წყვეტს და წერს ლოგს, არაფერს აგზავნის
+</code></pre>
+<h2 id="3-შესვლის-წერტილი-scalert_eventpy">3. შესვლის წერტილი: <code>scalert_event.py</code></h2>
+<p>მხოლოდ ნაბიჯებს აერთებს, ბიზნეს-ლოგიკა აქ არ არის:</p>
+<ol>
+<li>კითხულობს არგუმენტებს და წერს <code>RECEIVED</code>;</li>
+<li><code>process()</code>: ბაზიდან წაკითხვა → გადაწყვეტილება → არხები;</li>
+<li>თითო არხს ცალკე იძახებს. ერთის შეცდომა დანარჩენებს არ აჩერებს;</li>
+<li>წერს <code>DONE</code>-ს და აბრუნებს გამოსვლის კოდს.</li>
+</ol>
+<table>
+<thead>
+<tr>
+<th>კოდი</th>
+<th>მნიშვნელობა</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>0</code></td>
+<td>დამუშავდა: გაიგზავნა, ან გადაწყდა, რომ არ იგზავნება</td>
+</tr>
+<tr>
+<td><code>1</code></td>
+<td>შეცდომა: მიწისძვრა ბაზაში ვერ მოიძებნა, ან რომელიმე არხი ჩავარდა შეცდომით</td>
+</tr>
+<tr>
+<td><code>2</code></td>
+<td>არასწორი არგუმენტები</td>
+</tr>
+</tbody>
+</table>
+<p>არხის შეცდომად ითვლება API-ის შეცდომა (<code>EventApiError</code>), მიმღებების ფაილის შეცდომა
+(<code>RecipientsError</code>) და ნებისმიერი მოულოდნელი შეცდომა. თუ SMTP ან SMS-ის ყველა
+პროვაიდერი ვერ აგზავნის, ეს ლოგში იწერება (<code>MAIL FAILED</code>, <code>SMS FAILED</code>), მაგრამ
+<code>DONE</code>-ში ჩანს როგორც <code>not_sent</code> და გამოსვლის კოდს არ ცვლის.</p>
+<h2 id="4-მონაცემები-seiscomp-ის-ბაზიდან-seiscomp_dbpy">4. მონაცემები SeisComP-ის ბაზიდან: <code>seiscomp_db.py</code></h2>
+<p><code>load_event(event_id) -&gt; EventData</code></p>
+<pre><code>Event (publicID = event_id)
+  ├── preferredOriginID     ──► Origin: time, latitude, longitude, depth, evaluationMode
+  └── preferredMagnitudeID  ──► Magnitude (preferred)
+Origin._oid ──► Magnitude._parent_oid: ამ origin-ის ყველა მაგნიტუდა (ML, MLv, M, mb, ...)
+</code></pre>
+<ul>
+<li>გამოიყენება <code>Event.preferredOriginID</code> და არა ყველაზე ახალი origin, რადგან preferred
+  origin-ს SeisComP თავად თვლის საუკეთესოდ;</li>
+<li>SQL მოთხოვნები პარამეტრიზებულია (<code>cursor.execute(sql, (event_id,))</code>);</li>
+<li><strong>რბოლის პირობა.</strong> scalert მიწისძვრას messaging-იდან იღებს, <code>scdb</code> კი ბაზაში
+  ასინქრონულად წერს. ამიტომ მიწისძვრა ან მისი origin შეიძლება ბაზაში ჯერ არ იყოს.
+  <code>load_event</code> ცდილობს <code>SC_DB_RETRIES</code>-ჯერ (ნაგულისხმევად 5), <code>SC_DB_RETRY_DELAY</code>
+  წამის (3) პაუზით, და ლოგში წერს <code>WAITING</code>. თუ ვერ იპოვა, ჩნდება <code>EventNotReady</code>,
+  ლოგში კი ერთი ხაზი: <code>FAILED event_id=...: event ... not found</code>.</li>
+</ul>
+<p><code>EventData</code>:</p>
+<table>
+<thead>
+<tr>
+<th>ველი</th>
+<th>ტიპი</th>
+<th>აღწერა</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>event_id</code></td>
+<td>str</td>
+<td>publicID</td>
+</tr>
+<tr>
+<td><code>origin_id</code></td>
+<td>str</td>
+<td>preferred origin-ის publicID</td>
+</tr>
+<tr>
+<td><code>origin_time</code></td>
+<td>datetime</td>
+<td>UTC</td>
+</tr>
+<tr>
+<td><code>latitude</code>, <code>longitude</code></td>
+<td>float</td>
+<td>გრადუსი</td>
+</tr>
+<tr>
+<td><code>depth</code></td>
+<td>float</td>
+<td>კმ; თუ SeisComP-ში არ არის, <code>0.0</code></td>
+</tr>
+<tr>
+<td><code>evaluation_mode</code></td>
+<td>str</td>
+<td><code>automatic</code> / <code>manual</code></td>
+</tr>
+<tr>
+<td><code>event_type</code></td>
+<td>str | None</td>
+<td><code>not existing</code>, <code>not locatable</code>, <code>outside of network interest</code> → <code>SKIPPED</code></td>
+</tr>
+<tr>
+<td><code>magnitudes</code></td>
+<td>dict[str, float]</td>
+<td>მაგ. <code>{"ML": 3.4, "MLv": 3.3, "M": 3.4}</code></td>
+</tr>
+<tr>
+<td><code>preferred_magnitude_type</code></td>
+<td>str | None</td>
+<td>preferred მაგნიტუდის ტიპი</td>
+</tr>
+</tbody>
+</table>
+<h2 id="5-გადაწყვეტილება-automate_events">5. გადაწყვეტილება: <code>automate_events/</code></h2>
+<p><code>process_event(origin_time, lat, lon, depth, evaluation_mode, magnitudes) -&gt; EventAssessment</code></p>
+<ul>
+<li>ამოწმებს, რომ განედი, გრძედი და სიღრმე რიცხვებია;</li>
+<li>დრო UTC-შია; შეტყობინებისთვის ემატება +4 საათი (საქართველოს დრო);</li>
+<li>მაგნიტუდის არჩევა: ჯერ <code>ML</code>, თუ არ არის — <code>M</code>, თუ არც ის — პირველი არსებული;
+  მრგვალდება ორ ათწილადამდე;</li>
+<li><code>ies_borders</code> ბაზასთან კავშირი იხსნება, გამოიძახება <code>rules.decide</code>, კავშირი იხურება.</li>
+</ul>
+<p><code>EventAssessment</code>:</p>
+<table>
+<thead>
+<tr>
+<th>ველი</th>
+<th>აღწერა</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>audience</code></td>
+<td><code>all</code>, <code>staff</code> ან <code>None</code> (არავის)</td>
+</tr>
+<tr>
+<td><code>send</code></td>
+<td><code>audience is not None</code> — მეილი და SMS იგზავნება</td>
+</tr>
+<tr>
+<td><code>send_api</code></td>
+<td>ემატება თუ არა iesdata საიტს; <code>True</code>, როცა რომელიმე წესი დაემთხვა</td>
+</tr>
+<tr>
+<td><code>publish_iliauni</code></td>
+<td>ქვეყნდება თუ არა WordPress-ზე; <code>True</code> მხოლოდ <code>all</code>-ისთვის</td>
+</tr>
+<tr>
+<td><code>location_ge</code>, <code>location_en</code></td>
+<td>ლოკაციის ტექსტი; მხოლოდ მაშინ, როცა იგზავნება</td>
+</tr>
+<tr>
+<td><code>ev_mode</code>, <code>magnitude_type</code>, <code>magnitude</code>, <code>local_time</code></td>
+<td>შეტყობინების ტექსტისთვის</td>
+</tr>
+<tr>
+<td><code>reason</code></td>
+<td>ქართული მიზეზი რიცხვებით: რატომ მიიღო ეს გადაწყვეტილება</td>
+</tr>
+</tbody>
+</table>
+<h3 id="51-წესები-rulespy">5.1 წესები: <code>rules.py</code></h3>
+<table>
+<thead>
+<tr>
+<th>ჯგუფი</th>
+<th>ვინ იღებს</th>
+<th><code>send_api</code></th>
+<th><code>publish_iliauni</code></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>all</code></td>
+<td>თანამშრომლები და გარე მიმღებები</td>
+<td>True</td>
+<td>True</td>
+</tr>
+<tr>
+<td><code>staff</code></td>
+<td>მხოლოდ თანამშრომლები; ტექსტს თავში აწერია <code>STAFF ONLY.</code></td>
+<td>True</td>
+<td>False</td>
+</tr>
+<tr>
+<td>არავის</td>
+<td>—</td>
+<td>False</td>
+<td>False</td>
+</tr>
+</tbody>
+</table>
+<p>ეპიცენტრი საქართველოშია:</p>
+<table>
+<thead>
+<tr>
+<th>პირობა</th>
+<th>ვის ეგზავნება</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>მაგნიტუდა ≥ 3.0</td>
+<td>ყველას</td>
+</tr>
+<tr>
+<td>თბილისშია და 2.8 ≤ მაგნიტუდა &lt; 3.0</td>
+<td>ყველას</td>
+</tr>
+<tr>
+<td>თბილისშია და მაგნიტუდა &lt; 2.8</td>
+<td>არავის</td>
+</tr>
+<tr>
+<td>თბილისის გარეთაა და 2.8 ≤ მაგნიტუდა &lt; 3.0</td>
+<td>მხოლოდ თანამშრომლებს</td>
+</tr>
+<tr>
+<td>თბილისის გარეთაა, მაგნიტუდა &lt; 2.8, თბილისში იგრძნობა როგორც M2.8 ან მეტი</td>
+<td>ყველას</td>
+</tr>
+<tr>
+<td>თბილისის გარეთაა, მაგნიტუდა &lt; 2.8, თბილისში სუსტად იგრძნობა</td>
+<td>არავის</td>
+</tr>
+</tbody>
+</table>
+<p>ეპიცენტრი საზღვარგარეთაა:</p>
+<table>
+<thead>
+<tr>
+<th>პირობა</th>
+<th>ვის ეგზავნება</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>საზღვართან იგრძნობა როგორც საქართველოში მომხდარი M3.0 ან მეტი</td>
+<td>ყველას</td>
+</tr>
+<tr>
+<td>ასე არ არის, მაგრამ საზღვრიდან ≤ 100 კმ-ია და მაგნიტუდა ≥ 3.0</td>
+<td>მხოლოდ თანამშრომლებს</td>
+</tr>
+<tr>
+<td>სხვა შემთხვევაში</td>
+<td>არავის</td>
+</tr>
+</tbody>
+</table>
+<p>ზღვრები (2.8, 3.0, 100 კმ) კონსტანტებია <code>rules.py</code>-ის თავში. <code>send_api</code> და
+<code>publish_iliauni</code> <code>Decision</code>-ის თვისებებია, ამიტომ მათი წესის შეცვლა ერთ ადგილას ხდება.</p>
+<h3 id="52-იგრძნობა-როგორც-m28--m30-accelerationpy">5.2 „იგრძნობა როგორც M2.8 / M3.0“: <code>acceleration.py</code></h3>
+<p>ითვლება, რა აჩქარებას მისცემს მიწისძვრა კონკრეტულ ადგილს (თბილისის საზღვარს ან
+საქართველოს საზღვრის უახლოეს წერტილს), მანძილისა და სიღრმის გათვალისწინებით. ეს
+დარდება „ეტალონს“, ანუ ზღვრული მაგნიტუდის მიწისძვრას, რომელიც ზუსტად იმ ადგილას მოხდა.
+თუ რეალური მიწისძვრა ამ ადგილს ეტალონზე ნაკლებად არ შეარყევს, ზღვარი მიღწეულია.</p>
+<pre><code>log10(a) = -4.4983 + 1.3209·M − 0.0656·M² − 0.0041·R − 0.5229·log10(R²)
+</code></pre>
+<p><code>R</code> — ჰიპოცენტრული მანძილი კმ-ში (ეპიცენტრული მანძილი, სიღრმე და 3 კმ ფსევდო-სიღრმე).</p>
+<h3 id="53-ლოკაციის-ტექსტი-locationpy">5.3 ლოკაციის ტექსტი: <code>location.py</code></h3>
+<p>იგება მხოლოდ მაშინ, როცა რამე იგზავნება, რომ ბაზაში ზედმეტი მოთხოვნები არ გაკეთდეს.
+ყოველი ფრაგმენტი ერთდროულად ორ ენაზე იქმნება (<code>Text(ge, en)</code>).</p>
+<table>
+<thead>
+<tr>
+<th>შემთხვევა</th>
+<th>ქართული</th>
+<th>ინგლისური</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>საქართველოში, ≥ 3.0</td>
+<td><code>საქართველო. ქალაქი ბორჯომი, აღმოსავლეთით:11კმ. სოფელი კიმოთესუბანი:4კმ.</code></td>
+<td><code>Georgia. 11 km east of Borjomi (city). Nearest settlement: Kimotesubani (village), 4 km.</code></td>
+</tr>
+<tr>
+<td>თბილისში</td>
+<td><code>საქართველო.თბილისი, ვაკე-საბურთალოს რაიონი.</code></td>
+<td><code>Georgia. Tbilisi, Vake-Saburtalo district.</code></td>
+</tr>
+<tr>
+<td>თბილისის გარეთ, &lt; 3.0</td>
+<td><code>საქართველო. თბილისიდან 61კმ. ქალაქი დმანისი, დასავლეთით:21კმ. სოფელი მამიშლარი:5კმ.</code></td>
+<td><code>Georgia. 61 km from Tbilisi. 21 km west of Dmanisi (city). Nearest settlement: mamishlari (village), 5 km.</code></td>
+</tr>
+<tr>
+<td>საზღვარგარეთ</td>
+<td><code>ტაო-კლარჯეთი, საქართველოს საზღვრიდან 85კმ. დაბა შუახევი, სამხრეთით:104კმ. სოფელი წელათი:90კმ.</code></td>
+<td><code>Tao-Klarjeti, 85 km from the Georgian border. 104 km south of Suaxevi (town). Nearest settlement: Tselati (village), 90 km.</code></td>
+</tr>
+</tbody>
+</table>
+<ul>
+<li>ქართული ტექსტი ზუსტად იმეორებს ძველი სისტემის ფორმატს, ინტერვალებით და წერტილებით;</li>
+<li>ქალაქამდე მანძილი = ცენტრამდე მანძილი − ქალაქის რადიუსი − 1 კმ. თუ ეპიცენტრი ქალაქშია,
+  იწერება მხოლოდ ქალაქი;</li>
+<li>დასახლებამდე მანძილს 1 კმ აკლდება (ძველი ფორმატი), ამიტომ ქართულში შეიძლება ეწეროს <code>0კმ</code>
+  ან <code>-1კმ</code>; ინგლისურში უარყოფითი მანძილი <code>0 km</code> ხდება;</li>
+<li>მიმართულება ნაჩვენებია ქალაქიდან ეპიცენტრისკენ;</li>
+<li>ქალაქების და დასახლებების სახელები ორივე ენაზე იკითხება <code>ies_borders</code> ბაზიდან
+  (<code>name_ge</code>, <code>name_en</code>, <code>status_ge</code>, <code>status_en</code>). ქვეყნების, რუსეთის რეგიონების და
+  თბილისის რაიონების სახელები <code>location.py</code>-შია. ბაზაში ინგლისური სახელის შეცდომა
+  (მაგ. <code>mamishlari</code>, <code>Suaxevi</code>) ბაზაშივე სწორდება, კოდის შეცვლა არ სჭირდება.</li>
+</ul>
+<h2 id="6-ერთი-მიწისძვრის-განმეორებითი-გადათვლები">6. ერთი მიწისძვრის განმეორებითი გადათვლები</h2>
+<p>scalert სკრიპტს იძახებს <strong>ყოველ</strong> განახლებაზე: ახალი origin, ახალი მაგნიტუდა, მანუალური
+გადახედვა. ყოველი გამოძახება დამოუკიდებლად გადის ყველა ნაბიჯს. ბაზიდან ახალი მონაცემები
+იკითხება, წესები თავიდან ითვლება, და თუ შედეგი კრიტერიუმებს აკმაყოფილებს, შეტყობინება
+იგზავნება, მიუხედავად იმისა, წინა გადათვლაზე გაიგზავნა თუ არა.</p>
+<table>
+<thead>
+<tr>
+<th>არხი</th>
+<th>ყოველ გადათვლაზე</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>მეილი, SMS</td>
+<td>ახალი შეტყობინება იმ მომენტის მონაცემებით; წინა არ „უქმდება“</td>
+</tr>
+<tr>
+<td>iesdata საიტი</td>
+<td>იგივე <code>seiscomp_oid</code>-ის ჩანაწერი <strong>ახლდება</strong>, ახალი არ იქმნება</td>
+</tr>
+<tr>
+<td>WordPress</td>
+<td><code>publish_iliauni=True</code> → ქვეყნდება ან ახლდება; <code>False</code> და ადრე გამოქვეყნებული (მაგ. <code>all</code> → <code>staff</code>) → ჩამოიხსნება</td>
+</tr>
+</tbody>
+</table>
+<p>ორი გამოძახება ერთდროულად თუ მოვიდა, ორივე ცალ-ცალკე დამუშავდება.</p>
+<h2 id="7-მეილი-და-sms-send_notification">7. მეილი და SMS: <code>send_notification/</code></h2>
+<table>
+<thead>
+<tr>
+<th>ფაილი</th>
+<th>რას აკეთებს</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>message.py</code></td>
+<td><code>build_subject</code>, <code>build_body</code>, <code>build_sms_text</code> — მხოლოდ ტექსტი</td>
+</tr>
+<tr>
+<td><code>recipients.py</code></td>
+<td><code>recipient_emails(audience)</code>, <code>recipient_numbers(audience)</code> — მიმღებები (ნაწილი 11)</td>
+</tr>
+<tr>
+<td><code>mailer.py</code></td>
+<td>SMTP გაგზავნა, <code>MAIL_*</code> პარამეტრებით</td>
+</tr>
+<tr>
+<td><code>ies_mail_sender.py</code></td>
+<td><code>send_event_mail(...)</code> — ტექსტი + მიმღებები + SMTP, ლოგით</td>
+</tr>
+<tr>
+<td><code>ies_sms_sender.py</code></td>
+<td><code>send_event_sms(...)</code> და <code>SmsSender</code> — SMS პროვაიდერების ჯაჭვით, ლოგით</td>
+</tr>
+</tbody>
+</table>
+<h3 id="71-მეილი">7.1 მეილი</h3>
+<p>ერთი წერილი იგზავნება ყველასთან, მაგრამ მიმღებები ერთმანეთის მისამართებს ვერ ხედავენ.</p>
+<p>თემა:</p>
+<pre><code>Earthquake - Automatic: 2026-10-07 05:15:03. mag=3.0M
+</code></pre>
+<p>ტექსტი (<code>STAFF ONLY.</code> მხოლოდ თანამშრომლების შემთხვევაში):</p>
+<pre><code>STAFF ONLY.
+Automatic: 2026-10-07 05:15:03. mag=3.0M. ტაო-კლარჯეთი, საქართველოს საზღვრიდან 85კმ. ...
+https://www.google.com/maps/place/40.68,42.27
+Shakemap: https://shorturl.at/ibvtX
+
+https://ies.iliauni.edu.ge/?page_id=121
+
+
+ილიას სახელმწიფო უნივერსიტეტი
+დედამიწის შემსწავლელ მეცნიერებათა ინსტიტუტი და სეისმური მონიტორინგის ეროვნული ცენტრი
+</code></pre>
+<table>
+<thead>
+<tr>
+<th>ლოგი</th>
+<th>მნიშვნელობა</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>MAIL SENDING</code></td>
+<td>რაოდენობა, მისამართები, თემა</td>
+</tr>
+<tr>
+<td><code>MAIL SENT</code></td>
+<td>წარმატებით გადაეცა SMTP-ს</td>
+</tr>
+<tr>
+<td><code>MAIL NOT SENT</code></td>
+<td>ჯგუფში არც ერთი აქტიური მისამართი არ არის</td>
+</tr>
+<tr>
+<td><code>MAIL FAILED</code></td>
+<td>SMTP-ის შეცდომა (traceback იმავე ლოგში)</td>
+</tr>
+<tr>
+<td><code>MAIL DRY RUN</code></td>
+<td>dry run: ტექსტი ჩანს ლოგში, არაფერი იგზავნება</td>
+</tr>
+</tbody>
+</table>
+<h3 id="72-sms">7.2 SMS</h3>
+<p>ტექსტი მეილის პირველი ხაზებია, როგორც ძველ სისტემაში:</p>
+<pre><code>STAFF ONLY.
+Automatic: 2026-09-16 22:20:17. mag=2.92M. საქართველო. თბილისიდან 61კმ. ქალაქი დმანისი, დასავლეთით:21კმ. სოფელი მამიშლარი:5კმ.
+</code></pre>
+<p>ნომრები გადაიყვანება ფორმატში <code>995XXXXXXXXX</code> (<code>+995 555 12-34-56</code> და <code>555123456</code>
+ორივე მისაღებია; არასწორი ნომერი ლოგში ჩანს და გამოიტოვება).</p>
+<p>გაგზავნა ხდება პროვაიდერების ჯაჭვით (<code>SMS_PROVIDERS</code>, ნაგულისხმევად <code>magti,smsoffice,gsm</code>).
+ყოველი შემდეგი პროვაიდერი იღებს <strong>მხოლოდ იმ ნომრებს, რომლებზეც წინამ ვერ გაგზავნა</strong>:</p>
+<table>
+<thead>
+<tr>
+<th>პროვაიდერი</th>
+<th>როგორ</th>
+<th>წარმატება</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>magti</code></td>
+<td>Magti one-way gateway, თითო ნომერზე</td>
+<td>პასუხი <code>0000-&lt;id&gt;</code>, 5 წამის შემდეგ tracking სტატუსი <code>1</code>, <code>4</code> ან <code>8</code></td>
+</tr>
+<tr>
+<td><code>smsoffice</code></td>
+<td>smsoffice.ge API, თითო ნომერზე, 3 ცდამდე</td>
+<td><code>{"Success": true}</code></td>
+</tr>
+<tr>
+<td><code>gsm</code></td>
+<td>GSM მოდემი (iesresource), ერთი მოთხოვნით ყველა დარჩენილზე</td>
+<td>HTTP 200</td>
+</tr>
+</tbody>
+</table>
+<ul>
+<li>პროვაიდერი, რომლის პაროლი ან გასაღები <code>.env</code>-ში ცარიელია, გამოიტოვება;</li>
+<li>Magti-ს დაუდასტურებელი SMS შემდეგ პროვაიდერზე გადადის, ამიტომ იშვიათად ერთი SMS
+  შეიძლება ორჯერ მივიდეს. განგაშისთვის ეს სჯობს გამოტოვებას;</li>
+<li>smsoffice-ს ტექსტი 160 სიმბოლომდე აქვს; სიგრძე ლოგში <code>length=</code>-ით ჩანს;</li>
+<li>გაგზავნის შემდეგ მოწმდება smsoffice-ის ბალანსი; <code>SMSOFFICE_BALANCE_WARNING</code>-ზე
+  ნაკლებისას ლოგში იწერება <code>SMS BALANCE LOW</code>.</li>
+</ul>
+<table>
+<thead>
+<tr>
+<th>ლოგი</th>
+<th>მნიშვნელობა</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>SMS SENDING</code></td>
+<td>ნომრები, ტექსტი და მისი სიგრძე</td>
+</tr>
+<tr>
+<td><code>SMS magti/smsoffice/gsm ...</code></td>
+<td>თითო ნომრის შედეგი თითო პროვაიდერზე</td>
+</tr>
+<tr>
+<td><code>SMS via &lt;provider&gt;: sent=N failed=M</code></td>
+<td>პროვაიდერის ჯამი</td>
+</tr>
+<tr>
+<td><code>SMS SENT</code></td>
+<td>ყველა ნომერზე გაიგზავნა</td>
+</tr>
+<tr>
+<td><code>SMS NOT SENT</code></td>
+<td>ჯგუფში არც ერთი აქტიური ნომერი არ არის</td>
+</tr>
+<tr>
+<td><code>SMS FAILED</code></td>
+<td>ზოგ ნომერზე ვერც ერთმა პროვაიდერმა ვერ გაგზავნა (ნომრები ჩამოთვლილია)</td>
+</tr>
+<tr>
+<td><code>SMS BALANCE LOW</code></td>
+<td>smsoffice-ზე ცოტა SMS დარჩა</td>
+</tr>
+<tr>
+<td><code>SMS DRY RUN</code></td>
+<td>dry run: არაფერი იგზავნება</td>
+</tr>
+</tbody>
+</table>
+<h2 id="8-iesdata-საიტი-და-wordpress-send_eq2api">8. iesdata საიტი და WordPress: <code>send_eq2api/</code></h2>
+<table>
+<thead>
+<tr>
+<th>ფაილი</th>
+<th>რას აკეთებს</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>event_sender.py</code></td>
+<td><code>send_event_api(...)</code> — SeisComP-ის მიწისძვრა საიტის ფორმატში, publish / unpublish, ლოგით</td>
+</tr>
+<tr>
+<td><code>send_eq2api.py</code></td>
+<td><code>EventApiClient</code> — შემოწმება, შექმნა / განახლება, წაშლა ჩავარდნისას, publish / unpublish; ასევე read-only ბრძანება</td>
+</tr>
+</tbody>
+</table>
+<h3 id="81-რა-ხდება">8.1 რა ხდება</h3>
+<pre><code>send_api=True ?  ──არა──► არაფერი
+     │ კი
+     ▼
+add_event: არსებობს საიტზე იგივე seiscomp_oid?
+     ├── არა → POST მიწისძვრა, POST თითო მაგნიტუდა (ჩავარდნისას მიწისძვრა იშლება)
+     └── კი  → PUT მიწისძვრა, PUT/POST მაგნიტუდები
+     │
+     ▼
+publish_iliauni=True ?  ── კი ──► POST /api/publish_events/publish/{id}
+     │ არა
+     ▼
+ადრე გამოქვეყნებული იყო (is_published)?  ── კი ──► POST /api/publish_events/unpublish/{id}
+</code></pre>
+<ul>
+<li><strong>ყველაფერი ან არაფერი.</strong> თუ ახალ მიწისძვრაზე რომელიმე მაგნიტუდა ვერ დაემატა,
+  შექმნილი მიწისძვრა იშლება, რომ საიტზე მაგნიტუდის გარეშე არ დარჩეს. თუ წაშლაც ჩავარდა,
+  შეცდომაში წერია, რომელი id უნდა წაიშალოს ხელით;</li>
+<li><strong>განახლებისას</strong> თითო მაგნიტუდა ცალკე იცდება; ჩავარდნილები ერთად ჩამოითვლება. საიტზე
+  არსებული მაგნიტუდები, რომლებიც ახალ მონაცემებში აღარ არის, არ იშლება;</li>
+<li><strong>ორი გასაღები.</strong> მიწისძვრის დამატება <code>Send_eq2api_API_KEY</code>-ით ხდება (<code>can_event_edit</code>),
+  publish/unpublish კი <code>SeisComp_Publisher_API_KEY</code>-ით (<code>can_event_publish</code>);</li>
+<li>თუ publish ან unpublish ჩავარდა, მიწისძვრა საიტზე წინა მდგომარეობაში რჩება და შემდეგი
+  გადათვლა ისევ სცდის.</li>
+</ul>
+<h3 id="82-რა-იგზავნება">8.2 რა იგზავნება</h3>
+<p>SeisComP-ში მაგნიტუდები <code>{"ML": 3.512, "MLv": 3.43, "mb": 4.64, "mB": 4.9, "M": 3.512}</code>,
+საიტზე იგზავნება:</p>
+<pre><code class="language-json">{
+  &quot;seiscomp_oid&quot;: &quot;ies2026ufhk&quot;,
+  &quot;origin_time&quot;: &quot;2026-10-12 09:35:14&quot;,
+  &quot;latitude&quot;: 41.84595,
+  &quot;longitude&quot;: 43.55186,
+  &quot;depth&quot;: 0.0,
+  &quot;magnitudes&quot;: {&quot;ML&quot;: 3.512, &quot;MLV&quot;: 3.43, &quot;MB&quot;: 4.64, &quot;M&quot;: 3.512},
+  &quot;location_ge&quot;: &quot;საქართველო. ქალაქი ბორჯომი, აღმოსავლეთით:11კმ. სოფელი კიმოთესუბანი:4კმ.&quot;,
+  &quot;location_en&quot;: &quot;Georgia. 11 km east of Borjomi (city). Nearest settlement: Kimotesubani (village), 4 km.&quot;,
+  &quot;is_automatic&quot;: false
+}
+</code></pre>
+<table>
+<thead>
+<tr>
+<th>ველი</th>
+<th>საიდან</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>seiscomp_oid</code></td>
+<td><code>event_id</code></td>
+</tr>
+<tr>
+<td><code>origin_time</code></td>
+<td>UTC, წამებამდე (<code>YYYY-MM-DD HH:MM:SS</code>)</td>
+</tr>
+<tr>
+<td><code>latitude</code>, <code>longitude</code></td>
+<td>5 ათწილადამდე</td>
+</tr>
+<tr>
+<td><code>depth</code></td>
+<td>კმ, 3 ათწილადამდე</td>
+</tr>
+<tr>
+<td><code>magnitudes</code></td>
+<td>საიტის კოდებით, 3 ათწილადამდე (იხ. ქვემოთ)</td>
+</tr>
+<tr>
+<td><code>location_ge</code>, <code>location_en</code></td>
+<td>ნაწილი 5.3</td>
+</tr>
+<tr>
+<td><code>is_automatic</code></td>
+<td><code>evaluation_mode == "automatic"</code></td>
+</tr>
+</tbody>
+</table>
+<p><strong>მაგნიტუდის კოდები.</strong> საიტი იცნობს: <code>ML, MB, MS, MD, MW, K, MPV, MLH, MC, MLV, M</code>
+(<code>SITE_MAGNITUDE_CODES</code>). SeisComP-ის ტიპები მათ ასოების ზომის მიუხედავად ემთხვევა
+(<code>MLv</code> → <code>MLV</code>, <code>mb</code> → <code>MB</code>, <code>Mw</code> → <code>MW</code>). გამონაკლისები:</p>
+<ul>
+<li><code>Ms_20</code> → <code>MS</code>;</li>
+<li><code>mB</code> (broadband body-wave) <strong>არ იგზავნება</strong>, რადგან ის <code>mb</code>-სგან განსხვავებული მაგნიტუდაა;</li>
+<li>საიტისთვის უცნობი ტიპები (მაგ. <code>Mwp</code>, <code>mb_Lg</code>) არ იგზავნება და ლოგში ჩაიწერება.</li>
+</ul>
+<p>თუ საიტზე ახალი მაგნიტუდა დაემატა, ის <code>send_eq2api.py</code>-ის <code>SITE_MAGNITUDE_CODES</code>-შიც უნდა
+ჩაემატოს.</p>
+<h3 id="83-api">8.3 API</h3>
+<table>
+<thead>
+<tr>
+<th>მოთხოვნა</th>
+<th>დანიშნულება</th>
+<th>გასაღები</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>POST /api/seismic_events/filter</code></td>
+<td>ძებნა <code>seiscomp_oid</code>-ით</td>
+<td>edit</td>
+</tr>
+<tr>
+<td><code>POST /api/seismic_events/</code></td>
+<td>შექმნა</td>
+<td>edit</td>
+</tr>
+<tr>
+<td><code>PUT /api/seismic_events/{id}</code></td>
+<td>განახლება</td>
+<td>edit</td>
+</tr>
+<tr>
+<td><code>DELETE /api/seismic_events/{id}</code></td>
+<td>ჩავარდნილი შექმნის წაშლა</td>
+<td>edit</td>
+</tr>
+<tr>
+<td><code>POST /api/seismic_events/{id}/magnitudes</code></td>
+<td>მაგნიტუდის დამატება</td>
+<td>edit</td>
+</tr>
+<tr>
+<td><code>PUT /api/seismic_events/magnitudes/{id}</code></td>
+<td>მაგნიტუდის შეცვლა</td>
+<td>edit</td>
+</tr>
+<tr>
+<td><code>POST /api/publish_events/publish/{id}</code></td>
+<td>WordPress-ზე გამოქვეყნება ან განახლება</td>
+<td>publisher</td>
+</tr>
+<tr>
+<td><code>POST /api/publish_events/unpublish/{id}</code></td>
+<td>WordPress-იდან ჩამოხსნა</td>
+<td>publisher</td>
+</tr>
+</tbody>
+</table>
+<p>ყველა მოთხოვნას აქვს <code>X-API-Key</code> header და timeout (<code>Send_eq2api_API_TIMEOUT</code>, 20 წამი).
+API-ის სრული აღწერა: <code>https://iesdata.iliauni.edu.ge:3030/swagger.json</code>.</p>
+<p>ხელით შემოწმება (მხოლოდ კითხულობს):</p>
+<pre><code>./send_eq2api/send_eq2api.py ies2026ufhk
+</code></pre>
+<table>
+<thead>
+<tr>
+<th>ლოგი</th>
+<th>მნიშვნელობა</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>API MAGNITUDES SKIPPED</code></td>
+<td>საიტისთვის უცნობი მაგნიტუდის ტიპები, რომლებიც გამოტოვდა</td>
+</tr>
+<tr>
+<td><code>API SENDING</code></td>
+<td>გასაგზავნი მონაცემები და <code>publish_iliauni</code></td>
+</tr>
+<tr>
+<td><code>API CREATED</code> / <code>API UPDATED</code></td>
+<td>საიტზე დაემატა / განახლდა, <code>site_id</code>-ით</td>
+</tr>
+<tr>
+<td><code>API PUBLISHED</code></td>
+<td>WordPress-ზე გამოქვეყნდა</td>
+</tr>
+<tr>
+<td><code>API UNPUBLISHED</code></td>
+<td>WordPress-იდან ჩამოიხსნა</td>
+</tr>
+<tr>
+<td><code>API NOT SENT</code></td>
+<td>საიტისთვის ცნობილი არც ერთი მაგნიტუდა არ არის</td>
+</tr>
+<tr>
+<td><code>API DRY RUN</code></td>
+<td>dry run: არაფერი იგზავნება</td>
+</tr>
+<tr>
+<td><code>API FAILED</code></td>
+<td>API-ის შეცდომა, ერთ ხაზად</td>
+</tr>
+</tbody>
+</table>
+<h2 id="9-ლოგი">9. ლოგი</h2>
+<p>ფაილი: <code>logs/event_scalert.log</code>. ხაზის ფორმატი: <code>დრო LEVEL KEYWORD event_id=... ...</code></p>
+<p>ყველა ხაზს აქვს <code>event_id=...</code>, ამიტომ ერთი მიწისძვრის მთელი ისტორია ასე ჩანს:</p>
+<pre><code>grep &quot;event_id=ies2026rudf&quot; logs/event_scalert.log
+grep &quot; API &quot; logs/event_scalert.log        # მხოლოდ საიტი
+grep &quot; ERROR &quot; logs/event_scalert.log      # მხოლოდ პრობლემები
+</code></pre>
+<table>
+<thead>
+<tr>
+<th>საკვანძო სიტყვა</th>
+<th>ნიშნავს</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>RECEIVED</code></td>
+<td>scalert-მა გამოიძახა სკრიპტი, არგუმენტებით</td>
+</tr>
+<tr>
+<td><code>WAITING</code></td>
+<td>მიწისძვრა ბაზაში ჯერ სრულად არ ჩაწერილა, ხელახლა ცდის</td>
+</tr>
+<tr>
+<td><code>INPUT</code></td>
+<td>ბაზიდან წაკითხული მონაცემები</td>
+</tr>
+<tr>
+<td><code>DECISION</code></td>
+<td><code>SEND</code> ან <code>NOT SENT</code>, ქართული მიზეზით</td>
+</tr>
+<tr>
+<td><code>MAIL ...</code>, <code>SMS ...</code>, <code>API ...</code></td>
+<td>არხების დეტალები (ნაწილები 7 და 8)</td>
+</tr>
+<tr>
+<td><code>SKIPPED</code></td>
+<td>არ დამუშავდა (არარეალური მიწისძვრა ან მაგნიტუდა ჯერ არ აქვს)</td>
+</tr>
+<tr>
+<td><code>DONE</code></td>
+<td>დასრულდა: თითო არხის შედეგი (<code>sent</code> / <code>not_sent</code> / <code>failed</code>) და ხანგრძლივობა; <code>ERROR</code>, თუ რომელიმე არხი ჩავარდა</td>
+</tr>
+<tr>
+<td><code>FAILED</code></td>
+<td>ვერ დამუშავდა</td>
+</tr>
+</tbody>
+</table>
+<p><strong>ყოველი გაშვება მთავრდება ზუსტად ერთით:</strong> <code>SKIPPED</code>, <code>DECISION ... NOT SENT</code>, <code>DONE</code> ან <code>FAILED</code>.</p>
+<p><strong>traceback მხოლოდ მოულოდნელ შეცდომაზე იწერება.</strong> მოსალოდნელი შეცდომა ერთ ხაზად
+იწერება: API-ის პასუხი, მიმღებების ფაილი ან ბაზაში ვერნაპოვნი მიწისძვრა.</p>
+<p>მაგალითი, ორი გადათვლა:</p>
+<pre><code>INFO RECEIVED event_id=ies2026rudf flag=new arrivals=12 magnitude=4.2 dry_run=False message='...'
+INFO INPUT event_id=ies2026rudf origin=Origin/... origin_time=2026-09-08 04:52:15 lat=41.607 lon=43.5676 depth=15.3 mode=automatic type=earthquake magnitudes={'ML': 4.23} preferred_magnitude=ML
+INFO DECISION event_id=ies2026rudf SEND to=all publish_iliauni=True send_api=True magnitude=4.23ML local_time=2026-09-08 08:52:15 location=საქართველო. ქალაქი ახალქალაქი, ... reason: ეპიცენტრი საქართველოშია და მაგნიტუდა 4.23 ≥ 3.0
+INFO MAIL SENDING event_id=ies2026rudf audience=all count=2 recipients=... subject='Earthquake - Automatic: 2026-09-08 08:52:15. mag=4.23ML'
+INFO MAIL SENT event_id=ies2026rudf audience=all count=2
+INFO SMS SENDING event_id=ies2026rudf audience=all count=3 numbers=... length=119 text='...'
+INFO SMS via magti: sent=3 failed=0
+INFO SMS SENT event_id=ies2026rudf audience=all count=3
+INFO API SENDING event_id=ies2026rudf publish_iliauni=True payload={...}
+INFO API CREATED event_id=ies2026rudf site_id=12
+INFO API PUBLISHED event_id=ies2026rudf site_id=12 message='Publish request completed.' wp_response='1'
+INFO DONE event_id=ies2026rudf mail=sent sms=sent api=sent dry_run=False duration=7.4s
+INFO RECEIVED event_id=ies2026rudf flag=update arrivals=15 magnitude=4.3 ...
+...
+INFO API UPDATED event_id=ies2026rudf site_id=12
+INFO API PUBLISHED event_id=ies2026rudf site_id=12 ...
+INFO DONE event_id=ies2026rudf mail=sent sms=sent api=sent dry_run=False duration=6.9s
+</code></pre>
+<p>ჩავარდნის მაგალითი:</p>
+<pre><code>ERROR API FAILED event_id=ies2026test: POST /api/seismic_events/ failed with HTTP 403: სერვისს არ აქვს საჭირო უფლება — Missing required permission: can_event_edit
+ERROR DONE event_id=ies2026test mail=sent sms=sent api=failed dry_run=False duration=0.4s
+</code></pre>
+<p>მეორე ლოგი, <code>logs/update_recipients.log</code>, მიმღებების განახლებისაა (ნაწილი 11).</p>
+<h2 id="10-კონფიგურაცია-env">10. კონფიგურაცია: <code>.env</code></h2>
+<p>ყველა პაროლი, გასაღები და მისამართი მხოლოდ <code>.env</code>-შია (git-ში არ ემატება), კოდში
+არაფერი წერია. <code>config.py</code> კითხულობს <code>.env</code>-ს და ქმნის <code>Settings</code>-ს. პროცესის გარემოს
+ცვლადი <code>.env</code>-ზე მაღლა დგას, ამიტომ ერთი გაშვებისთვის მნიშვნელობის შეცვლა ასე შეიძლება:
+<code>DRY_RUN=1 ./scalert_event.py ...</code>.</p>
+<table>
+<thead>
+<tr>
+<th>ცვლადი</th>
+<th>ნაგულისხმევი</th>
+<th>დანიშნულება</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>SC_DB_HOST</code>, <code>SC_DB_USER</code>, <code>SC_DB_PASSWORD</code>, <code>SC_DB_NAME</code></td>
+<td><code>127.0.0.1</code>, <code>sysop</code>, —, <code>seiscomp</code></td>
+<td>SeisComP-ის ბაზა</td>
+</tr>
+<tr>
+<td><code>SC_DB_RETRIES</code>, <code>SC_DB_RETRY_DELAY</code></td>
+<td><code>5</code>, <code>3</code></td>
+<td>რამდენჯერ და რა პაუზით ეძებოს ჯერ ჩაუწერელი მიწისძვრა</td>
+</tr>
+<tr>
+<td><code>BORDERS_DB_HOST</code>, <code>BORDERS_DB_USER</code>, <code>BORDERS_DB_PASSWORD</code>, <code>BORDERS_DB_NAME</code></td>
+<td><code>127.0.0.1</code>, <code>ies_borders</code>, —, <code>ies_borders</code></td>
+<td>საზღვრების, ქალაქების და დასახლებების ბაზა</td>
+</tr>
+<tr>
+<td><code>MAIL_SERVER</code>, <code>MAIL_PORT</code>, <code>MAIL_USERNAME</code>, <code>MAIL_PASSWORD</code></td>
+<td>—, <code>587</code></td>
+<td>SMTP</td>
+</tr>
+<tr>
+<td><code>SEND_EMAIL</code>, <code>SEND_SMS</code>, <code>SEND_EQ2API</code></td>
+<td><code>1</code></td>
+<td><code>0</code> — არხი გამორთულია</td>
+</tr>
+<tr>
+<td><code>RECIPIENTS_FILE</code>, <code>SMS_RECIPIENTS_FILE</code></td>
+<td><code>recipients/email_recipients.json</code>, <code>recipients/sms_recipients.json</code></td>
+<td>მიმღებების ფაილები</td>
+</tr>
+<tr>
+<td><code>Recp_Exporter_API_URL</code>, <code>Recp_Exporter_API_KEY</code></td>
+<td>iesdata</td>
+<td>მიმღებების API</td>
+</tr>
+<tr>
+<td><code>Recp_Exporter_API_CA</code>, <code>Recp_Exporter_API_TIMEOUT</code></td>
+<td>სისტემის CA, <code>20</code></td>
+<td>მხოლოდ self-signed სერტიფიკატისთვის; timeout</td>
+</tr>
+<tr>
+<td><code>Send_eq2api_API_URL</code>, <code>Send_eq2api_API_KEY</code></td>
+<td>iesdata</td>
+<td>მიწისძვრების დამატება (<code>can_event_edit</code>)</td>
+</tr>
+<tr>
+<td><code>SeisComp_Publisher_API_KEY</code></td>
+<td>—</td>
+<td>WordPress-ზე გამოქვეყნება (<code>can_event_publish</code>)</td>
+</tr>
+<tr>
+<td><code>Send_eq2api_API_CA</code>, <code>Send_eq2api_API_TIMEOUT</code></td>
+<td>სისტემის CA, <code>20</code></td>
+<td>მხოლოდ self-signed სერტიფიკატისთვის; timeout</td>
+</tr>
+<tr>
+<td><code>SMS_PROVIDERS</code>, <code>SMS_TIMEOUT</code></td>
+<td><code>magti,smsoffice,gsm</code>, <code>10</code></td>
+<td>SMS პროვაიდერების რიგი; timeout</td>
+</tr>
+<tr>
+<td><code>MAGTI_USERNAME</code>, <code>MAGTI_PASSWORD</code>, <code>MAGTI_CLIENT_ID</code>, <code>MAGTI_SERVICE_ID</code></td>
+<td>—, —, <code>643</code>, <code>1</code></td>
+<td>Magti</td>
+</tr>
+<tr>
+<td><code>SMSOFFICE_KEY</code>, <code>SMSOFFICE_SENDER</code>, <code>SMSOFFICE_BALANCE_WARNING</code></td>
+<td>—, <code>IES</code>, <code>5000</code></td>
+<td>smsoffice.ge</td>
+</tr>
+<tr>
+<td><code>GSM_SMS_URL</code>, <code>GSM_SMS_CODE</code></td>
+<td>iesresource, —</td>
+<td>GSM მოდემი</td>
+</tr>
+<tr>
+<td><code>LOG_FILE</code>, <code>LOG_LEVEL</code></td>
+<td><code>logs/event_scalert.log</code>, <code>INFO</code></td>
+<td>ლოგი; <code>DEBUG</code>-ზე ჩანს წესებში შესული მონაცემებიც</td>
+</tr>
+<tr>
+<td><code>DRY_RUN</code></td>
+<td><code>0</code></td>
+<td><code>1</code> — არაფერი იგზავნება, მხოლოდ ლოგი</td>
+</tr>
+</tbody>
+</table>
+<p>ფარდობითი მისამართები (მაგ. <code>recipients/...</code>) პროექტის საქაღალდიდან ითვლება.</p>
+<h2 id="11-მიმღებები">11. მიმღებები</h2>
+<p>მიმღებები იმართება iesdata-ს Notify გვერდიდან. <code>recipients/update_recipients.py</code>
+API-დან ქმნის ორ ლოკალურ ფაილს (ორივე git-ში არ ემატება):</p>
+<pre><code>iesdata API  GET /api/recips/  (X-API-Key)
+     │   {&quot;items&quot;: [{username, is_staff, is_active,
+     │               emails:  [{email, is_active}],
+     │               numbers: [{phone_number, is_active}]}], &quot;total&quot;: N}
+     ▼
+recipients/update_recipients.py      (cron-ით, ყოველ 10 წუთში)
+     │                      │
+     ▼                      ▼
+email_recipients.json    sms_recipients.json
+     │
+     ▼
+send_notification/recipients.py      (ყოველ გაგზავნაზე იკითხება)
+</code></pre>
+<pre><code class="language-json">[
+  {&quot;username&quot;: &quot;...&quot;, &quot;email&quot;: &quot;a@iliauni.edu.ge&quot;, &quot;is_staff&quot;: true,  &quot;is_active&quot;: true},
+  {&quot;username&quot;: &quot;...&quot;, &quot;email&quot;: &quot;b@example.com&quot;,    &quot;is_staff&quot;: false, &quot;is_active&quot;: true}
+]
+</code></pre>
+<pre><code class="language-json">[
+  {&quot;username&quot;: &quot;...&quot;, &quot;phone_number&quot;: &quot;+995555000001&quot;, &quot;is_staff&quot;: true, &quot;is_active&quot;: true}
+]
+</code></pre>
+<ul>
+<li>ჩანაწერი აქტიურია მხოლოდ მაშინ, თუ აქტიურია <strong>მიმღებიც და მისი მისამართი ან ნომერიც</strong>;</li>
+<li><code>staff</code> ჯგუფს ეგზავნება მხოლოდ <code>is_staff: true</code>; <code>all</code>-ს — ყველა აქტიურს;</li>
+<li>ფაილი იკითხება ყოველ გაგზავნაზე, ამიტომ განახლება მაშინვე მოქმედებს;</li>
+<li>ფაილი იცვლება მხოლოდ წარმატებული პასუხის შემდეგ და ატომურად (ჯერ <code>.tmp</code>, მერე გადარქმევა);</li>
+<li>თუ API მიუწვდომელია, <strong>ორივე ძველი ფაილი რჩება</strong>. თუ რომელიმე სიაში არც ერთი აქტიური
+  ჩანაწერი არ არის, მხოლოდ ის ფაილი რჩება ძველი (ცარიელი სიის ჩასაწერად — <code>--allow-empty</code>);</li>
+<li>ლოგი: <code>logs/update_recipients.log</code> — <code>UPDATED</code>, <code>UNCHANGED</code>, <code>FAILED</code>.</li>
+</ul>
+<pre><code>./recipients/update_recipients.py            # განახლება
+./recipients/update_recipients.py --dry-run  # მხოლოდ ნახვა, ფაილები არ იცვლება
+</code></pre>
+<h2 id="12-ტესტები">12. ტესტები</h2>
+<pre><code>./venv/bin/python -m pytest -q
+</code></pre>
+<p>ტესტებს არც ბაზა სჭირდება, არც SMTP, არც ქსელი: ყველა გარე სერვისი ყალბით იცვლება.</p>
+<table>
+<thead>
+<tr>
+<th>ფაილი</th>
+<th>რას ამოწმებს</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>test_scalert_event.py</code></td>
+<td>არგუმენტები, არხების დამოუკიდებლობა, <code>DONE</code>, ლოგის ფორმატი, API-ის მონაცემები</td>
+</tr>
+<tr>
+<td><code>test_send_eq2api.py</code></td>
+<td>შექმნა, განახლება, წაშლა ჩავარდნისას, publish / unpublish, შემოწმება, მაგნიტუდის კოდები</td>
+</tr>
+<tr>
+<td><code>test_send_notification.py</code>, <code>test_sms.py</code></td>
+<td>მეილისა და SMS-ის ტექსტი, პროვაიდერების ჯაჭვი</td>
+</tr>
+<tr>
+<td><code>test_seiscomp_db.py</code></td>
+<td>SeisComP-ის ბაზიდან წაკითხვა და ხელახლა ცდა</td>
+</tr>
+<tr>
+<td><code>test_update_recipients.py</code></td>
+<td>მიმღებების ფაილების განახლება</td>
+</tr>
+<tr>
+<td><code>test_config.py</code></td>
+<td><code>.env</code>-ის წაკითხვა</td>
+</tr>
+</tbody>
+</table>
+<h2 id="13-ფაილების-სტრუქტურა">13. ფაილების სტრუქტურა</h2>
+<pre><code>scalert_event/
+├── scalert_event.py          შესვლის წერტილი (scalert იძახებს)
+├── scalert_event_ka.md       გამართვის ინსტრუქცია
+├── config.py                 .env-ის წაკითხვა → Settings
+├── seiscomp_db.py            load_event(event_id) -&gt; EventData
+├── .env                      პაროლები და გასაღებები (git-ში არა); ნიმუში — .env.example
+├── requirements.txt          pymysql, requests, certifi, pytest
+├── automate_events/          გადაწყვეტილება
+│   ├── automate_event.py     process_event, EventAssessment
+│   ├── rules.py              ვის ეგზავნება, send_api, publish_iliauni
+│   ├── location.py           ლოკაციის ტექსტი (ქართ. და ინგლ.)
+│   ├── acceleration.py       აჩქარების ფორმულა
+│   ├── borders_db.py         ies_borders ბაზა
+│   └── geo.py                მანძილი, მიმართულება, პოლიგონი
+├── send_notification/        მეილი და SMS
+│   ├── message.py            თემა, მეილისა და SMS-ის ტექსტი
+│   ├── recipients.py         მიმღებები
+│   ├── mailer.py             SMTP
+│   ├── ies_mail_sender.py    send_event_mail
+│   └── ies_sms_sender.py     send_event_sms, SmsSender (magti → smsoffice → gsm)
+├── send_eq2api/              iesdata საიტი და WordPress
+│   ├── event_sender.py       send_event_api (SeisComP → საიტის ფორმატი)
+│   └── send_eq2api.py        EventApiClient
+├── recipients/
+│   ├── update_recipients.py  API-დან მიმღებების ფაილების განახლება
+│   ├── email_recipients.json (git-ში არა); ნიმუში — email_recipients.example.json
+│   └── sms_recipients.json   (git-ში არა); ნიმუში — sms_recipients.example.json
+├── docs/                     ეს დოკუმენტაცია: .md, .html, .pdf, build_docs.py
+├── logs/                     event_scalert.log, update_recipients.log
+├── tests/
+└── venv/                     Python გარემო (git-ში არა)
+</code></pre>
+</body>
+</html>

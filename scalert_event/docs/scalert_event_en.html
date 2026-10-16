@@ -1,0 +1,1118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>scalert_event — full documentation</title>
+<style>
+body { font-family: "Noto Sans Georgian", "DejaVu Sans", sans-serif; font-size: 15px;
+       line-height: 1.55; color: #1f2328; max-width: 980px; margin: 0 auto; padding: 24px 32px; }
+h1 { border-bottom: 2px solid #0b5394; padding-bottom: 6px; color: #0b5394; }
+h2 { border-bottom: 1px solid #d0d7de; padding-bottom: 4px; margin-top: 2em; color: #0b5394; }
+h3 { margin-top: 1.5em; }
+a { color: #0b5394; }
+code { font-family: "DejaVu Sans Mono", monospace; font-size: 0.88em; background: #f2f4f7;
+       padding: 1px 4px; border-radius: 3px; }
+pre { background: #f6f8fa; border: 1px solid #d0d7de; border-radius: 6px; padding: 10px 12px;
+      overflow-x: auto; line-height: 1.35; }
+pre code { background: none; padding: 0; font-size: 12.5px; }
+table { border-collapse: collapse; margin: 12px 0; width: 100%; }
+th, td { border: 1px solid #d0d7de; padding: 5px 9px; vertical-align: top; text-align: left; }
+th { background: #eef2f7; }
+tr:nth-child(even) td { background: #fafbfc; }
+@page { size: A4; margin: 16mm 14mm; }
+@media print {
+  body { max-width: none; padding: 0; font-size: 11pt; }
+  pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+  pre code { font-size: 8pt; }
+  h2 { break-before: auto; break-after: avoid; }
+  h3 { break-after: avoid; }
+  tr, pre { break-inside: avoid; }
+}
+</style>
+</head>
+<body>
+<h1 id="scalert_event--full-documentation">scalert_event — full documentation</h1>
+<p><a href="scalert_event_ka.html">ქართული ვერსია</a> · <a href="setup_ka.html">Setup guide (Georgian)</a></p>
+<p><code>scalert_event</code> sends automatic notifications about SeisComP earthquakes. <code>scalert</code>
+calls our script with an <code>event_id</code>. The script reads the earthquake parameters from the
+SeisComP database and decides, by rules, who gets notified. It then sends email and SMS,
+adds the earthquake to the iesdata site and, when required, publishes it on WordPress.</p>
+<p>This document describes <strong>how the system works</strong>. Installation, filling in <code>.env</code> and
+troubleshooting are in the <a href="setup_ka.html">setup guide</a>.</p>
+<h2 id="contents">Contents</h2>
+<ol>
+<li><a href="#1-overview">Overview</a></li>
+<li><a href="#2-how-scalert-calls-the-script">How scalert calls the script</a></li>
+<li><a href="#3-entry-point-scalert_eventpy">Entry point: <code>scalert_event.py</code></a></li>
+<li><a href="#4-data-from-the-seiscomp-database-seiscomp_dbpy">Data from the SeisComP database: <code>seiscomp_db.py</code></a></li>
+<li><a href="#5-decision-automate_events">Decision: <code>automate_events/</code></a></li>
+<li><a href="#6-repeated-recalculations-of-one-earthquake">Repeated recalculations of one earthquake</a></li>
+<li><a href="#7-email-and-sms-send_notification">Email and SMS: <code>send_notification/</code></a></li>
+<li><a href="#8-iesdata-site-and-wordpress-send_eq2api">iesdata site and WordPress: <code>send_eq2api/</code></a></li>
+<li><a href="#9-log">Log</a></li>
+<li><a href="#10-configuration-env">Configuration: <code>.env</code></a></li>
+<li><a href="#11-recipients">Recipients</a></li>
+<li><a href="#12-tests">Tests</a></li>
+<li><a href="#13-file-layout">File layout</a></li>
+</ol>
+<h2 id="1-overview">1. Overview</h2>
+<pre><code>SeisComP (scautoloc / scevent / scmag ...)
+        │  new or updated earthquake
+        ▼
+scalert ──► scalert_event.py &quot;&lt;message&gt;&quot; &lt;flag&gt; &lt;event_id&gt; &lt;arrivals&gt; &lt;magnitude&gt;
+                 │
+                 ▼
+          [1] arguments, log RECEIVED
+                 │
+                 ▼
+          [2] seiscomp_db.load_event(event_id)       SeisComP MySQL database
+                 │   EventData: time, lat, lon, depth, mode, magnitudes
+                 ▼
+          [3] automate_events.process_event(...)     decision
+                 │      ├── rules.py                 who is notified and why
+                 │      ├── location.py              location text (Georgian and English)
+                 │      ├── acceleration.py          how strongly it is felt
+                 │      └── borders_db.py + geo.py   ies_borders database, geometry
+                 │   EventAssessment: audience, send_api, publish_iliauni, location, reason
+                 ▼  only if audience is all or staff
+          [4] channels, independent of each other
+                 ├── MAIL  send_notification/ies_mail_sender   email_recipients.json
+                 ├── SMS   send_notification/ies_sms_sender    sms_recipients.json
+                 └── API   send_eq2api/event_sender            iesdata site → WordPress
+                 │
+                 ▼
+          [5] log DONE: the result of each channel
+</code></pre>
+<p><strong>Principle: deciding and sending are separate.</strong> <code>automate_events</code> only decides and sends
+nothing. <code>send_notification</code> and <code>send_eq2api</code> only send and decide nothing. So a new rule
+goes only into <code>rules.py</code>, and a new channel (e.g. Telegram) becomes a separate module.
+Neither affects the other.</p>
+<p><strong>Channels do not stop each other.</strong> If one fails, the others are still sent, and the
+failure shows in the log and in the exit code.</p>
+<h2 id="2-how-scalert-calls-the-script">2. How scalert calls the script</h2>
+<p>On every new earthquake and every update, <code>scalert</code> runs the script set in
+<code>scripts.event</code> with these arguments:</p>
+<table>
+<thead>
+<tr>
+<th>Argument</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>$1</code></td>
+<td>Text message (scalert format)</td>
+</tr>
+<tr>
+<td><code>$2</code></td>
+<td><code>1</code> — new earthquake, <code>0</code> — update</td>
+</tr>
+<tr>
+<td><code>$3</code></td>
+<td>Earthquake publicID, e.g. <code>ies2026rudf</code> — <strong>this is the <code>event_id</code></strong></td>
+</tr>
+<tr>
+<td><code>$4</code></td>
+<td>Number of arrivals (phases)</td>
+</tr>
+<tr>
+<td><code>$5</code></td>
+<td>Magnitude (may be missing)</td>
+</tr>
+</tbody>
+</table>
+<p>The script relies only on <code>$3</code>. <code>$1</code>, <code>$2</code>, <code>$4</code> and <code>$5</code> are logged, but every parameter
+used for the decision is read from the database, so there is a single source of truth.</p>
+<p>Running by hand (without scalert):</p>
+<pre><code>./scalert_event.py ies2026rudf
+./scalert_event.py --dry-run ies2026rudf     # decides and logs, sends nothing
+</code></pre>
+<h2 id="3-entry-point-scalert_eventpy">3. Entry point: <code>scalert_event.py</code></h2>
+<p>It only connects the steps; there is no business logic here:</p>
+<ol>
+<li>reads the arguments and logs <code>RECEIVED</code>;</li>
+<li><code>process()</code>: read from the database → decide → channels;</li>
+<li>calls each channel separately; an error in one does not stop the others;</li>
+<li>logs <code>DONE</code> and returns the exit code.</li>
+</ol>
+<table>
+<thead>
+<tr>
+<th>Code</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>0</code></td>
+<td>Processed: sent, or decided not to send</td>
+</tr>
+<tr>
+<td><code>1</code></td>
+<td>Error: the earthquake was not found in the database, or a channel failed with an error</td>
+</tr>
+<tr>
+<td><code>2</code></td>
+<td>Invalid arguments</td>
+</tr>
+</tbody>
+</table>
+<p>A channel error is an API error (<code>EventApiError</code>), a recipients file error
+(<code>RecipientsError</code>) or any unexpected error. When SMTP or all SMS providers fail to send,
+this is logged (<code>MAIL FAILED</code>, <code>SMS FAILED</code>) but shows as <code>not_sent</code> in <code>DONE</code> and does not
+change the exit code.</p>
+<h2 id="4-data-from-the-seiscomp-database-seiscomp_dbpy">4. Data from the SeisComP database: <code>seiscomp_db.py</code></h2>
+<p><code>load_event(event_id) -&gt; EventData</code></p>
+<pre><code>Event (publicID = event_id)
+  ├── preferredOriginID     ──► Origin: time, latitude, longitude, depth, evaluationMode
+  └── preferredMagnitudeID  ──► Magnitude (preferred)
+Origin._oid ──► Magnitude._parent_oid: all magnitudes of this origin (ML, MLv, M, mb, ...)
+</code></pre>
+<ul>
+<li><code>Event.preferredOriginID</code> is used rather than the newest origin, because SeisComP itself
+  considers the preferred origin the best one;</li>
+<li>SQL queries are parameterised (<code>cursor.execute(sql, (event_id,))</code>);</li>
+<li><strong>Race condition.</strong> scalert gets the earthquake from messaging while <code>scdb</code> writes the
+  database asynchronously, so the earthquake or its origin may not be in the database yet.
+  <code>load_event</code> tries <code>SC_DB_RETRIES</code> times (default 5) with <code>SC_DB_RETRY_DELAY</code> seconds (3)
+  between attempts and logs <code>WAITING</code>. If it is still missing, <code>EventNotReady</code> is raised
+  and the log gets one line: <code>FAILED event_id=...: event ... not found</code>.</li>
+</ul>
+<p><code>EventData</code>:</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>event_id</code></td>
+<td>str</td>
+<td>publicID</td>
+</tr>
+<tr>
+<td><code>origin_id</code></td>
+<td>str</td>
+<td>publicID of the preferred origin</td>
+</tr>
+<tr>
+<td><code>origin_time</code></td>
+<td>datetime</td>
+<td>UTC</td>
+</tr>
+<tr>
+<td><code>latitude</code>, <code>longitude</code></td>
+<td>float</td>
+<td>degrees</td>
+</tr>
+<tr>
+<td><code>depth</code></td>
+<td>float</td>
+<td>km; <code>0.0</code> if SeisComP has none</td>
+</tr>
+<tr>
+<td><code>evaluation_mode</code></td>
+<td>str</td>
+<td><code>automatic</code> / <code>manual</code></td>
+</tr>
+<tr>
+<td><code>event_type</code></td>
+<td>str | None</td>
+<td><code>not existing</code>, <code>not locatable</code>, <code>outside of network interest</code> → <code>SKIPPED</code></td>
+</tr>
+<tr>
+<td><code>magnitudes</code></td>
+<td>dict[str, float]</td>
+<td>e.g. <code>{"ML": 3.4, "MLv": 3.3, "M": 3.4}</code></td>
+</tr>
+<tr>
+<td><code>preferred_magnitude_type</code></td>
+<td>str | None</td>
+<td>type of the preferred magnitude</td>
+</tr>
+</tbody>
+</table>
+<h2 id="5-decision-automate_events">5. Decision: <code>automate_events/</code></h2>
+<p><code>process_event(origin_time, lat, lon, depth, evaluation_mode, magnitudes) -&gt; EventAssessment</code></p>
+<ul>
+<li>checks that latitude, longitude and depth are numbers;</li>
+<li>time is UTC; +4 hours (Georgian time) is added for the message;</li>
+<li>magnitude choice: <code>ML</code> first, otherwise <code>M</code>, otherwise the first available;
+  rounded to two decimals;</li>
+<li>opens a connection to the <code>ies_borders</code> database, calls <code>rules.decide</code>, closes it.</li>
+</ul>
+<p><code>EventAssessment</code>:</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>audience</code></td>
+<td><code>all</code>, <code>staff</code> or <code>None</code> (nobody)</td>
+</tr>
+<tr>
+<td><code>send</code></td>
+<td><code>audience is not None</code> — email and SMS are sent</td>
+</tr>
+<tr>
+<td><code>send_api</code></td>
+<td>whether it is added to the iesdata site; <code>True</code> when any rule matched</td>
+</tr>
+<tr>
+<td><code>publish_iliauni</code></td>
+<td>whether it is published on WordPress; <code>True</code> only for <code>all</code></td>
+</tr>
+<tr>
+<td><code>location_ge</code>, <code>location_en</code></td>
+<td>location text; only when something is sent</td>
+</tr>
+<tr>
+<td><code>ev_mode</code>, <code>magnitude_type</code>, <code>magnitude</code>, <code>local_time</code></td>
+<td>for the message text</td>
+</tr>
+<tr>
+<td><code>reason</code></td>
+<td>Georgian reason with numbers: why this decision was made</td>
+</tr>
+</tbody>
+</table>
+<h3 id="51-rules-rulespy">5.1 Rules: <code>rules.py</code></h3>
+<table>
+<thead>
+<tr>
+<th>Group</th>
+<th>Who receives</th>
+<th><code>send_api</code></th>
+<th><code>publish_iliauni</code></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>all</code></td>
+<td>staff and external recipients</td>
+<td>True</td>
+<td>True</td>
+</tr>
+<tr>
+<td><code>staff</code></td>
+<td>staff only; the text starts with <code>STAFF ONLY.</code></td>
+<td>True</td>
+<td>False</td>
+</tr>
+<tr>
+<td>nobody</td>
+<td>—</td>
+<td>False</td>
+<td>False</td>
+</tr>
+</tbody>
+</table>
+<p>Epicentre in Georgia:</p>
+<table>
+<thead>
+<tr>
+<th>Condition</th>
+<th>Sent to</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>magnitude ≥ 3.0</td>
+<td>all</td>
+</tr>
+<tr>
+<td>in Tbilisi and 2.8 ≤ magnitude &lt; 3.0</td>
+<td>all</td>
+</tr>
+<tr>
+<td>in Tbilisi and magnitude &lt; 2.8</td>
+<td>nobody</td>
+</tr>
+<tr>
+<td>outside Tbilisi and 2.8 ≤ magnitude &lt; 3.0</td>
+<td>staff only</td>
+</tr>
+<tr>
+<td>outside Tbilisi, magnitude &lt; 2.8, felt in Tbilisi like M2.8 or more</td>
+<td>all</td>
+</tr>
+<tr>
+<td>outside Tbilisi, magnitude &lt; 2.8, felt weakly in Tbilisi</td>
+<td>nobody</td>
+</tr>
+</tbody>
+</table>
+<p>Epicentre abroad:</p>
+<table>
+<thead>
+<tr>
+<th>Condition</th>
+<th>Sent to</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>felt at the border like an M3.0 or more in Georgia</td>
+<td>all</td>
+</tr>
+<tr>
+<td>otherwise, but ≤ 100 km from the border and magnitude ≥ 3.0</td>
+<td>staff only</td>
+</tr>
+<tr>
+<td>anything else</td>
+<td>nobody</td>
+</tr>
+</tbody>
+</table>
+<p>The thresholds (2.8, 3.0, 100 km) are constants at the top of <code>rules.py</code>. <code>send_api</code> and
+<code>publish_iliauni</code> are properties of <code>Decision</code>, so their rule changes in one place.</p>
+<h3 id="52-felt-like-m28--m30-accelerationpy">5.2 "Felt like M2.8 / M3.0": <code>acceleration.py</code></h3>
+<p>It computes the acceleration the earthquake causes at a specific place (the Tbilisi
+border or the nearest point of the Georgian border), taking distance and depth into
+account. This is compared with a "reference": an earthquake of the threshold magnitude
+that happened exactly at that place. If the real earthquake shakes the place no less than
+the reference does, the threshold is reached.</p>
+<pre><code>log10(a) = -4.4983 + 1.3209·M − 0.0656·M² − 0.0041·R − 0.5229·log10(R²)
+</code></pre>
+<p><code>R</code> is the hypocentral distance in km (epicentral distance, depth and a 3 km pseudo-depth).</p>
+<h3 id="53-location-text-locationpy">5.3 Location text: <code>location.py</code></h3>
+<p>It is built only when something is sent, to avoid extra database queries. Every fragment
+is created in both languages at once (<code>Text(ge, en)</code>).</p>
+<table>
+<thead>
+<tr>
+<th>Case</th>
+<th>Georgian</th>
+<th>English</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>in Georgia, ≥ 3.0</td>
+<td><code>საქართველო. ქალაქი ბორჯომი, აღმოსავლეთით:11კმ. სოფელი კიმოთესუბანი:4კმ.</code></td>
+<td><code>Georgia. 11 km east of Borjomi (city). Nearest settlement: Kimotesubani (village), 4 km.</code></td>
+</tr>
+<tr>
+<td>in Tbilisi</td>
+<td><code>საქართველო.თბილისი, ვაკე-საბურთალოს რაიონი.</code></td>
+<td><code>Georgia. Tbilisi, Vake-Saburtalo district.</code></td>
+</tr>
+<tr>
+<td>outside Tbilisi, &lt; 3.0</td>
+<td><code>საქართველო. თბილისიდან 61კმ. ქალაქი დმანისი, დასავლეთით:21კმ. სოფელი მამიშლარი:5კმ.</code></td>
+<td><code>Georgia. 61 km from Tbilisi. 21 km west of Dmanisi (city). Nearest settlement: mamishlari (village), 5 km.</code></td>
+</tr>
+<tr>
+<td>abroad</td>
+<td><code>ტაო-კლარჯეთი, საქართველოს საზღვრიდან 85კმ. დაბა შუახევი, სამხრეთით:104კმ. სოფელი წელათი:90კმ.</code></td>
+<td><code>Tao-Klarjeti, 85 km from the Georgian border. 104 km south of Suaxevi (town). Nearest settlement: Tselati (village), 90 km.</code></td>
+</tr>
+</tbody>
+</table>
+<ul>
+<li>The Georgian text repeats the old system's format exactly, including spaces and dots;</li>
+<li>distance to a city = distance to its centre − city radius − 1 km. If the epicentre is
+  inside the city, only the city is written;</li>
+<li>1 km is subtracted from the settlement distance (old format), so the Georgian text can
+  say <code>0კმ</code> or <code>-1კმ</code>; in English a negative distance becomes <code>0 km</code>;</li>
+<li>the direction is from the city towards the epicentre;</li>
+<li>city and settlement names in both languages come from the <code>ies_borders</code> database
+  (<code>name_ge</code>, <code>name_en</code>, <code>status_ge</code>, <code>status_en</code>). Names of countries, Russian regions and
+  Tbilisi districts are in <code>location.py</code>. A wrong English name in the database
+  (e.g. <code>mamishlari</code>, <code>Suaxevi</code>) is fixed in the database; no code change is needed.</li>
+</ul>
+<h2 id="6-repeated-recalculations-of-one-earthquake">6. Repeated recalculations of one earthquake</h2>
+<p>scalert calls the script on <strong>every</strong> update: a new origin, a new magnitude, a manual
+review. Each call goes through all the steps independently. Fresh data is read from the
+database, the rules are evaluated again, and if the result meets the criteria the
+notification is sent, regardless of whether the previous recalculation was sent.</p>
+<table>
+<thead>
+<tr>
+<th>Channel</th>
+<th>On every recalculation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>email, SMS</td>
+<td>a new message with the data of that moment; the previous one is not "cancelled"</td>
+</tr>
+<tr>
+<td>iesdata site</td>
+<td>the record with the same <code>seiscomp_oid</code> is <strong>updated</strong>; no new one is created</td>
+</tr>
+<tr>
+<td>WordPress</td>
+<td><code>publish_iliauni=True</code> → published or updated; <code>False</code> and published before (e.g. <code>all</code> → <code>staff</code>) → unpublished</td>
+</tr>
+</tbody>
+</table>
+<p>If two calls arrive at the same time, both are processed separately.</p>
+<h2 id="7-email-and-sms-send_notification">7. Email and SMS: <code>send_notification/</code></h2>
+<table>
+<thead>
+<tr>
+<th>File</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>message.py</code></td>
+<td><code>build_subject</code>, <code>build_body</code>, <code>build_sms_text</code> — text only</td>
+</tr>
+<tr>
+<td><code>recipients.py</code></td>
+<td><code>recipient_emails(audience)</code>, <code>recipient_numbers(audience)</code> — recipients (section 11)</td>
+</tr>
+<tr>
+<td><code>mailer.py</code></td>
+<td>SMTP sending with the <code>MAIL_*</code> settings</td>
+</tr>
+<tr>
+<td><code>ies_mail_sender.py</code></td>
+<td><code>send_event_mail(...)</code> — text + recipients + SMTP, with logging</td>
+</tr>
+<tr>
+<td><code>ies_sms_sender.py</code></td>
+<td><code>send_event_sms(...)</code> and <code>SmsSender</code> — SMS through a chain of providers, with logging</td>
+</tr>
+</tbody>
+</table>
+<h3 id="71-email">7.1 Email</h3>
+<p>One message is sent to everyone, but recipients cannot see each other's addresses.</p>
+<p>Subject:</p>
+<pre><code>Earthquake - Automatic: 2026-10-07 05:15:03. mag=3.0M
+</code></pre>
+<p>Body (<code>STAFF ONLY.</code> only for staff-only events):</p>
+<pre><code>STAFF ONLY.
+Automatic: 2026-10-07 05:15:03. mag=3.0M. ტაო-კლარჯეთი, საქართველოს საზღვრიდან 85კმ. ...
+https://www.google.com/maps/place/40.68,42.27
+Shakemap: https://shorturl.at/ibvtX
+
+https://ies.iliauni.edu.ge/?page_id=121
+
+
+ილიას სახელმწიფო უნივერსიტეტი
+დედამიწის შემსწავლელ მეცნიერებათა ინსტიტუტი და სეისმური მონიტორინგის ეროვნული ცენტრი
+</code></pre>
+<table>
+<thead>
+<tr>
+<th>Log</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>MAIL SENDING</code></td>
+<td>count, addresses, subject</td>
+</tr>
+<tr>
+<td><code>MAIL SENT</code></td>
+<td>handed over to SMTP successfully</td>
+</tr>
+<tr>
+<td><code>MAIL NOT SENT</code></td>
+<td>no active address in the group</td>
+</tr>
+<tr>
+<td><code>MAIL FAILED</code></td>
+<td>SMTP error (traceback in the same log)</td>
+</tr>
+<tr>
+<td><code>MAIL DRY RUN</code></td>
+<td>dry run: the text is in the log, nothing is sent</td>
+</tr>
+</tbody>
+</table>
+<h3 id="72-sms">7.2 SMS</h3>
+<p>The text is the first lines of the email, as in the old system:</p>
+<pre><code>STAFF ONLY.
+Automatic: 2026-09-16 22:20:17. mag=2.92M. საქართველო. თბილისიდან 61კმ. ქალაქი დმანისი, დასავლეთით:21კმ. სოფელი მამიშლარი:5კმ.
+</code></pre>
+<p>Numbers are normalised to <code>995XXXXXXXXX</code> (<code>+995 555 12-34-56</code> and <code>555123456</code> are both
+accepted; an invalid number is logged and skipped).</p>
+<p>Sending goes through a chain of providers (<code>SMS_PROVIDERS</code>, default <code>magti,smsoffice,gsm</code>).
+Each next provider gets <strong>only the numbers the previous one failed on</strong>:</p>
+<table>
+<thead>
+<tr>
+<th>Provider</th>
+<th>How</th>
+<th>Success</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>magti</code></td>
+<td>Magti one-way gateway, per number</td>
+<td>response <code>0000-&lt;id&gt;</code>, and after 5 s tracking status <code>1</code>, <code>4</code> or <code>8</code></td>
+</tr>
+<tr>
+<td><code>smsoffice</code></td>
+<td>smsoffice.ge API, per number, up to 3 attempts</td>
+<td><code>{"Success": true}</code></td>
+</tr>
+<tr>
+<td><code>gsm</code></td>
+<td>GSM modem (iesresource), one request for all remaining numbers</td>
+<td>HTTP 200</td>
+</tr>
+</tbody>
+</table>
+<ul>
+<li>A provider whose password or key is empty in <code>.env</code> is skipped;</li>
+<li>an unconfirmed Magti SMS goes on to the next provider, so rarely one SMS may arrive
+  twice. For an alert this is better than missing it;</li>
+<li>smsoffice accepts up to 160 characters; the length is in the log as <code>length=</code>;</li>
+<li>after sending, the smsoffice balance is checked; below <code>SMSOFFICE_BALANCE_WARNING</code> the
+  log gets <code>SMS BALANCE LOW</code>.</li>
+</ul>
+<table>
+<thead>
+<tr>
+<th>Log</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>SMS SENDING</code></td>
+<td>numbers, text and its length</td>
+</tr>
+<tr>
+<td><code>SMS magti/smsoffice/gsm ...</code></td>
+<td>result per number per provider</td>
+</tr>
+<tr>
+<td><code>SMS via &lt;provider&gt;: sent=N failed=M</code></td>
+<td>provider total</td>
+</tr>
+<tr>
+<td><code>SMS SENT</code></td>
+<td>sent to every number</td>
+</tr>
+<tr>
+<td><code>SMS NOT SENT</code></td>
+<td>no active number in the group</td>
+</tr>
+<tr>
+<td><code>SMS FAILED</code></td>
+<td>no provider could send to some numbers (they are listed)</td>
+</tr>
+<tr>
+<td><code>SMS BALANCE LOW</code></td>
+<td>few SMS left on smsoffice</td>
+</tr>
+<tr>
+<td><code>SMS DRY RUN</code></td>
+<td>dry run: nothing is sent</td>
+</tr>
+</tbody>
+</table>
+<h2 id="8-iesdata-site-and-wordpress-send_eq2api">8. iesdata site and WordPress: <code>send_eq2api/</code></h2>
+<table>
+<thead>
+<tr>
+<th>File</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>event_sender.py</code></td>
+<td><code>send_event_api(...)</code> — SeisComP earthquake in the site's format, publish / unpublish, with logging</td>
+</tr>
+<tr>
+<td><code>send_eq2api.py</code></td>
+<td><code>EventApiClient</code> — validation, create / update, rollback on failure, publish / unpublish; also a read-only command</td>
+</tr>
+</tbody>
+</table>
+<h3 id="81-what-happens">8.1 What happens</h3>
+<pre><code>send_api=True ?  ──no──► nothing
+     │ yes
+     ▼
+add_event: is the same seiscomp_oid already on the site?
+     ├── no  → POST earthquake, POST each magnitude (on failure the earthquake is deleted)
+     └── yes → PUT earthquake, PUT/POST magnitudes
+     │
+     ▼
+publish_iliauni=True ?  ── yes ──► POST /api/publish_events/publish/{id}
+     │ no
+     ▼
+published before (is_published)?  ── yes ──► POST /api/publish_events/unpublish/{id}
+</code></pre>
+<ul>
+<li><strong>All or nothing.</strong> If any magnitude of a new earthquake cannot be added, the created
+  earthquake is deleted so that it does not stay on the site without a magnitude. If the
+  delete also fails, the error says which id has to be deleted by hand;</li>
+<li><strong>On update</strong> each magnitude is tried separately and the failed ones are reported
+  together. Magnitudes on the site that are no longer in the new data are not deleted;</li>
+<li><strong>Two keys.</strong> Adding earthquakes uses <code>Send_eq2api_API_KEY</code> (<code>can_event_edit</code>);
+  publish/unpublish uses <code>SeisComp_Publisher_API_KEY</code> (<code>can_event_publish</code>);</li>
+<li>if publish or unpublish fails, the earthquake stays in its previous state on the site
+  and the next recalculation tries again.</li>
+</ul>
+<h3 id="82-what-is-sent">8.2 What is sent</h3>
+<p>Magnitudes in SeisComP <code>{"ML": 3.512, "MLv": 3.43, "mb": 4.64, "mB": 4.9, "M": 3.512}</code>
+are sent to the site as:</p>
+<pre><code class="language-json">{
+  &quot;seiscomp_oid&quot;: &quot;ies2026ufhk&quot;,
+  &quot;origin_time&quot;: &quot;2026-10-12 09:35:14&quot;,
+  &quot;latitude&quot;: 41.84595,
+  &quot;longitude&quot;: 43.55186,
+  &quot;depth&quot;: 0.0,
+  &quot;magnitudes&quot;: {&quot;ML&quot;: 3.512, &quot;MLV&quot;: 3.43, &quot;MB&quot;: 4.64, &quot;M&quot;: 3.512},
+  &quot;location_ge&quot;: &quot;საქართველო. ქალაქი ბორჯომი, აღმოსავლეთით:11კმ. სოფელი კიმოთესუბანი:4კმ.&quot;,
+  &quot;location_en&quot;: &quot;Georgia. 11 km east of Borjomi (city). Nearest settlement: Kimotesubani (village), 4 km.&quot;,
+  &quot;is_automatic&quot;: false
+}
+</code></pre>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Source</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>seiscomp_oid</code></td>
+<td><code>event_id</code></td>
+</tr>
+<tr>
+<td><code>origin_time</code></td>
+<td>UTC, to the second (<code>YYYY-MM-DD HH:MM:SS</code>)</td>
+</tr>
+<tr>
+<td><code>latitude</code>, <code>longitude</code></td>
+<td>5 decimals</td>
+</tr>
+<tr>
+<td><code>depth</code></td>
+<td>km, 3 decimals</td>
+</tr>
+<tr>
+<td><code>magnitudes</code></td>
+<td>site codes, 3 decimals (see below)</td>
+</tr>
+<tr>
+<td><code>location_ge</code>, <code>location_en</code></td>
+<td>section 5.3</td>
+</tr>
+<tr>
+<td><code>is_automatic</code></td>
+<td><code>evaluation_mode == "automatic"</code></td>
+</tr>
+</tbody>
+</table>
+<p><strong>Magnitude codes.</strong> The site knows: <code>ML, MB, MS, MD, MW, K, MPV, MLH, MC, MLV, M</code>
+(<code>SITE_MAGNITUDE_CODES</code>). SeisComP types match them case-insensitively
+(<code>MLv</code> → <code>MLV</code>, <code>mb</code> → <code>MB</code>, <code>Mw</code> → <code>MW</code>). Exceptions:</p>
+<ul>
+<li><code>Ms_20</code> → <code>MS</code>;</li>
+<li><code>mB</code> (broadband body-wave) is <strong>not sent</strong>, because it is a different magnitude from <code>mb</code>;</li>
+<li>types unknown to the site (e.g. <code>Mwp</code>, <code>mb_Lg</code>) are not sent and are logged.</li>
+</ul>
+<p>When a new magnitude is added on the site, it must also be added to
+<code>SITE_MAGNITUDE_CODES</code> in <code>send_eq2api.py</code>.</p>
+<h3 id="83-api">8.3 API</h3>
+<table>
+<thead>
+<tr>
+<th>Request</th>
+<th>Purpose</th>
+<th>Key</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>POST /api/seismic_events/filter</code></td>
+<td>find by <code>seiscomp_oid</code></td>
+<td>edit</td>
+</tr>
+<tr>
+<td><code>POST /api/seismic_events/</code></td>
+<td>create</td>
+<td>edit</td>
+</tr>
+<tr>
+<td><code>PUT /api/seismic_events/{id}</code></td>
+<td>update</td>
+<td>edit</td>
+</tr>
+<tr>
+<td><code>DELETE /api/seismic_events/{id}</code></td>
+<td>delete a failed create</td>
+<td>edit</td>
+</tr>
+<tr>
+<td><code>POST /api/seismic_events/{id}/magnitudes</code></td>
+<td>add a magnitude</td>
+<td>edit</td>
+</tr>
+<tr>
+<td><code>PUT /api/seismic_events/magnitudes/{id}</code></td>
+<td>change a magnitude</td>
+<td>edit</td>
+</tr>
+<tr>
+<td><code>POST /api/publish_events/publish/{id}</code></td>
+<td>publish or update on WordPress</td>
+<td>publisher</td>
+</tr>
+<tr>
+<td><code>POST /api/publish_events/unpublish/{id}</code></td>
+<td>remove from WordPress</td>
+<td>publisher</td>
+</tr>
+</tbody>
+</table>
+<p>Every request has the <code>X-API-Key</code> header and a timeout (<code>Send_eq2api_API_TIMEOUT</code>, 20 s).
+Full API description: <code>https://iesdata.iliauni.edu.ge:3030/swagger.json</code>.</p>
+<p>Checking by hand (read-only):</p>
+<pre><code>./send_eq2api/send_eq2api.py ies2026ufhk
+</code></pre>
+<table>
+<thead>
+<tr>
+<th>Log</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>API MAGNITUDES SKIPPED</code></td>
+<td>magnitude types unknown to the site that were skipped</td>
+</tr>
+<tr>
+<td><code>API SENDING</code></td>
+<td>the data to send and <code>publish_iliauni</code></td>
+</tr>
+<tr>
+<td><code>API CREATED</code> / <code>API UPDATED</code></td>
+<td>added / updated on the site, with <code>site_id</code></td>
+</tr>
+<tr>
+<td><code>API PUBLISHED</code></td>
+<td>published on WordPress</td>
+</tr>
+<tr>
+<td><code>API UNPUBLISHED</code></td>
+<td>removed from WordPress</td>
+</tr>
+<tr>
+<td><code>API NOT SENT</code></td>
+<td>no magnitude known to the site</td>
+</tr>
+<tr>
+<td><code>API DRY RUN</code></td>
+<td>dry run: nothing is sent</td>
+</tr>
+<tr>
+<td><code>API FAILED</code></td>
+<td>API error, one line</td>
+</tr>
+</tbody>
+</table>
+<h2 id="9-log">9. Log</h2>
+<p>File: <code>logs/event_scalert.log</code>. Line format: <code>time LEVEL KEYWORD event_id=... ...</code></p>
+<p>Every line has <code>event_id=...</code>, so the whole history of one earthquake is:</p>
+<pre><code>grep &quot;event_id=ies2026rudf&quot; logs/event_scalert.log
+grep &quot; API &quot; logs/event_scalert.log        # site only
+grep &quot; ERROR &quot; logs/event_scalert.log      # problems only
+</code></pre>
+<table>
+<thead>
+<tr>
+<th>Keyword</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>RECEIVED</code></td>
+<td>scalert called the script, with its arguments</td>
+</tr>
+<tr>
+<td><code>WAITING</code></td>
+<td>the earthquake is not fully in the database yet; retrying</td>
+</tr>
+<tr>
+<td><code>INPUT</code></td>
+<td>data read from the database</td>
+</tr>
+<tr>
+<td><code>DECISION</code></td>
+<td><code>SEND</code> or <code>NOT SENT</code>, with the Georgian reason</td>
+</tr>
+<tr>
+<td><code>MAIL ...</code>, <code>SMS ...</code>, <code>API ...</code></td>
+<td>channel details (sections 7 and 8)</td>
+</tr>
+<tr>
+<td><code>SKIPPED</code></td>
+<td>not processed (not a real earthquake, or no magnitude yet)</td>
+</tr>
+<tr>
+<td><code>DONE</code></td>
+<td>finished: the result of each channel (<code>sent</code> / <code>not_sent</code> / <code>failed</code>) and the duration; <code>ERROR</code> if any channel failed</td>
+</tr>
+<tr>
+<td><code>FAILED</code></td>
+<td>could not be processed</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Every run ends with exactly one of:</strong> <code>SKIPPED</code>, <code>DECISION ... NOT SENT</code>, <code>DONE</code> or <code>FAILED</code>.</p>
+<p><strong>A traceback is written only for unexpected errors.</strong> An expected error is one line: an
+API response, a recipients file, or an earthquake not found in the database.</p>
+<p>Example, two recalculations:</p>
+<pre><code>INFO RECEIVED event_id=ies2026rudf flag=new arrivals=12 magnitude=4.2 dry_run=False message='...'
+INFO INPUT event_id=ies2026rudf origin=Origin/... origin_time=2026-09-08 04:52:15 lat=41.607 lon=43.5676 depth=15.3 mode=automatic type=earthquake magnitudes={'ML': 4.23} preferred_magnitude=ML
+INFO DECISION event_id=ies2026rudf SEND to=all publish_iliauni=True send_api=True magnitude=4.23ML local_time=2026-09-08 08:52:15 location=საქართველო. ქალაქი ახალქალაქი, ... reason: ეპიცენტრი საქართველოშია და მაგნიტუდა 4.23 ≥ 3.0
+INFO MAIL SENDING event_id=ies2026rudf audience=all count=2 recipients=... subject='Earthquake - Automatic: 2026-09-08 08:52:15. mag=4.23ML'
+INFO MAIL SENT event_id=ies2026rudf audience=all count=2
+INFO SMS SENDING event_id=ies2026rudf audience=all count=3 numbers=... length=119 text='...'
+INFO SMS via magti: sent=3 failed=0
+INFO SMS SENT event_id=ies2026rudf audience=all count=3
+INFO API SENDING event_id=ies2026rudf publish_iliauni=True payload={...}
+INFO API CREATED event_id=ies2026rudf site_id=12
+INFO API PUBLISHED event_id=ies2026rudf site_id=12 message='Publish request completed.' wp_response='1'
+INFO DONE event_id=ies2026rudf mail=sent sms=sent api=sent dry_run=False duration=7.4s
+INFO RECEIVED event_id=ies2026rudf flag=update arrivals=15 magnitude=4.3 ...
+...
+INFO API UPDATED event_id=ies2026rudf site_id=12
+INFO API PUBLISHED event_id=ies2026rudf site_id=12 ...
+INFO DONE event_id=ies2026rudf mail=sent sms=sent api=sent dry_run=False duration=6.9s
+</code></pre>
+<p>Failure example:</p>
+<pre><code>ERROR API FAILED event_id=ies2026test: POST /api/seismic_events/ failed with HTTP 403: სერვისს არ აქვს საჭირო უფლება — Missing required permission: can_event_edit
+ERROR DONE event_id=ies2026test mail=sent sms=sent api=failed dry_run=False duration=0.4s
+</code></pre>
+<p>A second log, <code>logs/update_recipients.log</code>, belongs to the recipients update (section 11).</p>
+<h2 id="10-configuration-env">10. Configuration: <code>.env</code></h2>
+<p>All passwords, keys and addresses live only in <code>.env</code> (not committed to git); nothing is
+in the code. <code>config.py</code> reads <code>.env</code> and builds <code>Settings</code>. A process environment
+variable wins over <code>.env</code>, so a value can be changed for one run:
+<code>DRY_RUN=1 ./scalert_event.py ...</code>.</p>
+<table>
+<thead>
+<tr>
+<th>Variable</th>
+<th>Default</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>SC_DB_HOST</code>, <code>SC_DB_USER</code>, <code>SC_DB_PASSWORD</code>, <code>SC_DB_NAME</code></td>
+<td><code>127.0.0.1</code>, <code>sysop</code>, —, <code>seiscomp</code></td>
+<td>SeisComP database</td>
+</tr>
+<tr>
+<td><code>SC_DB_RETRIES</code>, <code>SC_DB_RETRY_DELAY</code></td>
+<td><code>5</code>, <code>3</code></td>
+<td>how many times and how often to look for a not-yet-written earthquake</td>
+</tr>
+<tr>
+<td><code>BORDERS_DB_HOST</code>, <code>BORDERS_DB_USER</code>, <code>BORDERS_DB_PASSWORD</code>, <code>BORDERS_DB_NAME</code></td>
+<td><code>127.0.0.1</code>, <code>ies_borders</code>, —, <code>ies_borders</code></td>
+<td>borders, cities and settlements database</td>
+</tr>
+<tr>
+<td><code>MAIL_SERVER</code>, <code>MAIL_PORT</code>, <code>MAIL_USERNAME</code>, <code>MAIL_PASSWORD</code></td>
+<td>—, <code>587</code></td>
+<td>SMTP</td>
+</tr>
+<tr>
+<td><code>SEND_EMAIL</code>, <code>SEND_SMS</code>, <code>SEND_EQ2API</code></td>
+<td><code>1</code></td>
+<td><code>0</code> — channel disabled</td>
+</tr>
+<tr>
+<td><code>RECIPIENTS_FILE</code>, <code>SMS_RECIPIENTS_FILE</code></td>
+<td><code>recipients/email_recipients.json</code>, <code>recipients/sms_recipients.json</code></td>
+<td>recipient files</td>
+</tr>
+<tr>
+<td><code>Recp_Exporter_API_URL</code>, <code>Recp_Exporter_API_KEY</code></td>
+<td>iesdata</td>
+<td>recipients API</td>
+</tr>
+<tr>
+<td><code>Recp_Exporter_API_CA</code>, <code>Recp_Exporter_API_TIMEOUT</code></td>
+<td>system CAs, <code>20</code></td>
+<td>only for a self-signed certificate; timeout</td>
+</tr>
+<tr>
+<td><code>Send_eq2api_API_URL</code>, <code>Send_eq2api_API_KEY</code></td>
+<td>iesdata</td>
+<td>adding earthquakes (<code>can_event_edit</code>)</td>
+</tr>
+<tr>
+<td><code>SeisComp_Publisher_API_KEY</code></td>
+<td>—</td>
+<td>publishing on WordPress (<code>can_event_publish</code>)</td>
+</tr>
+<tr>
+<td><code>Send_eq2api_API_CA</code>, <code>Send_eq2api_API_TIMEOUT</code></td>
+<td>system CAs, <code>20</code></td>
+<td>only for a self-signed certificate; timeout</td>
+</tr>
+<tr>
+<td><code>SMS_PROVIDERS</code>, <code>SMS_TIMEOUT</code></td>
+<td><code>magti,smsoffice,gsm</code>, <code>10</code></td>
+<td>SMS provider order; timeout</td>
+</tr>
+<tr>
+<td><code>MAGTI_USERNAME</code>, <code>MAGTI_PASSWORD</code>, <code>MAGTI_CLIENT_ID</code>, <code>MAGTI_SERVICE_ID</code></td>
+<td>—, —, <code>643</code>, <code>1</code></td>
+<td>Magti</td>
+</tr>
+<tr>
+<td><code>SMSOFFICE_KEY</code>, <code>SMSOFFICE_SENDER</code>, <code>SMSOFFICE_BALANCE_WARNING</code></td>
+<td>—, <code>IES</code>, <code>5000</code></td>
+<td>smsoffice.ge</td>
+</tr>
+<tr>
+<td><code>GSM_SMS_URL</code>, <code>GSM_SMS_CODE</code></td>
+<td>iesresource, —</td>
+<td>GSM modem</td>
+</tr>
+<tr>
+<td><code>LOG_FILE</code>, <code>LOG_LEVEL</code></td>
+<td><code>logs/event_scalert.log</code>, <code>INFO</code></td>
+<td>log; with <code>DEBUG</code> the rule inputs are logged too</td>
+</tr>
+<tr>
+<td><code>DRY_RUN</code></td>
+<td><code>0</code></td>
+<td><code>1</code> — nothing is sent, log only</td>
+</tr>
+</tbody>
+</table>
+<p>Relative paths (e.g. <code>recipients/...</code>) are resolved from the project folder.</p>
+<h2 id="11-recipients">11. Recipients</h2>
+<p>Recipients are managed on the iesdata Notify page. <code>recipients/update_recipients.py</code>
+builds two local files from the API (neither is committed to git):</p>
+<pre><code>iesdata API  GET /api/recips/  (X-API-Key)
+     │   {&quot;items&quot;: [{username, is_staff, is_active,
+     │               emails:  [{email, is_active}],
+     │               numbers: [{phone_number, is_active}]}], &quot;total&quot;: N}
+     ▼
+recipients/update_recipients.py      (by cron, every 10 minutes)
+     │                      │
+     ▼                      ▼
+email_recipients.json    sms_recipients.json
+     │
+     ▼
+send_notification/recipients.py      (read on every send)
+</code></pre>
+<pre><code class="language-json">[
+  {&quot;username&quot;: &quot;...&quot;, &quot;email&quot;: &quot;a@iliauni.edu.ge&quot;, &quot;is_staff&quot;: true,  &quot;is_active&quot;: true},
+  {&quot;username&quot;: &quot;...&quot;, &quot;email&quot;: &quot;b@example.com&quot;,    &quot;is_staff&quot;: false, &quot;is_active&quot;: true}
+]
+</code></pre>
+<pre><code class="language-json">[
+  {&quot;username&quot;: &quot;...&quot;, &quot;phone_number&quot;: &quot;+995555000001&quot;, &quot;is_staff&quot;: true, &quot;is_active&quot;: true}
+]
+</code></pre>
+<ul>
+<li>An entry is active only if <strong>both the recipient and the address or number</strong> are active;</li>
+<li>the <code>staff</code> group gets only <code>is_staff: true</code>; <code>all</code> gets every active entry;</li>
+<li>the file is read on every send, so an update takes effect immediately;</li>
+<li>the file changes only after a successful response, atomically (first <code>.tmp</code>, then rename);</li>
+<li>if the API is unreachable, <strong>both old files stay</strong>. If one list has no active entry,
+  only that file stays old (to write an empty list — <code>--allow-empty</code>);</li>
+<li>log: <code>logs/update_recipients.log</code> — <code>UPDATED</code>, <code>UNCHANGED</code>, <code>FAILED</code>.</li>
+</ul>
+<pre><code>./recipients/update_recipients.py            # update
+./recipients/update_recipients.py --dry-run  # show only, files are not changed
+</code></pre>
+<h2 id="12-tests">12. Tests</h2>
+<pre><code>./venv/bin/python -m pytest -q
+</code></pre>
+<p>The tests need no database, SMTP or network: every external service is replaced by a fake.</p>
+<table>
+<thead>
+<tr>
+<th>File</th>
+<th>What it checks</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>test_scalert_event.py</code></td>
+<td>arguments, channel independence, <code>DONE</code>, log format, API data</td>
+</tr>
+<tr>
+<td><code>test_send_eq2api.py</code></td>
+<td>create, update, rollback, publish / unpublish, validation, magnitude codes</td>
+</tr>
+<tr>
+<td><code>test_send_notification.py</code>, <code>test_sms.py</code></td>
+<td>email and SMS text, the provider chain</td>
+</tr>
+<tr>
+<td><code>test_seiscomp_db.py</code></td>
+<td>reading from the SeisComP database and retrying</td>
+</tr>
+<tr>
+<td><code>test_update_recipients.py</code></td>
+<td>updating the recipient files</td>
+</tr>
+<tr>
+<td><code>test_config.py</code></td>
+<td>reading <code>.env</code></td>
+</tr>
+</tbody>
+</table>
+<h2 id="13-file-layout">13. File layout</h2>
+<pre><code>scalert_event/
+├── scalert_event.py          entry point (called by scalert)
+├── scalert_event_ka.md       setup guide
+├── config.py                 reads .env → Settings
+├── seiscomp_db.py            load_event(event_id) -&gt; EventData
+├── .env                      passwords and keys (not in git); template — .env.example
+├── requirements.txt          pymysql, requests, certifi, pytest
+├── automate_events/          decision
+│   ├── automate_event.py     process_event, EventAssessment
+│   ├── rules.py              who is notified, send_api, publish_iliauni
+│   ├── location.py           location text (Georgian and English)
+│   ├── acceleration.py       acceleration formula
+│   ├── borders_db.py         ies_borders database
+│   └── geo.py                distance, direction, polygon
+├── send_notification/        email and SMS
+│   ├── message.py            subject, email and SMS text
+│   ├── recipients.py         recipients
+│   ├── mailer.py             SMTP
+│   ├── ies_mail_sender.py    send_event_mail
+│   └── ies_sms_sender.py     send_event_sms, SmsSender (magti → smsoffice → gsm)
+├── send_eq2api/              iesdata site and WordPress
+│   ├── event_sender.py       send_event_api (SeisComP → site format)
+│   └── send_eq2api.py        EventApiClient
+├── recipients/
+│   ├── update_recipients.py  updates the recipient files from the API
+│   ├── email_recipients.json (not in git); template — email_recipients.example.json
+│   └── sms_recipients.json   (not in git); template — sms_recipients.example.json
+├── docs/                     this documentation: .md, .html, .pdf, build_docs.py
+├── logs/                     event_scalert.log, update_recipients.log
+├── tests/
+└── venv/                     Python environment (not in git)
+</code></pre>
+</body>
+</html>
