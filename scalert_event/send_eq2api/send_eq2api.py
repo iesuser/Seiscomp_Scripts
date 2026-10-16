@@ -1,5 +1,52 @@
+#!/home/sysop/Clone/Seiscomp_Scripts/scalert_event/venv/bin/python
+# -*- coding: utf-8 -*-
+"""Client for the seismic events API of the iesdata site.
+
+`EventApiClient.add_event(event)` makes the site match `event`:
+
+    1. the event is validated; nothing is sent if it is invalid (ValueError);
+    2. the site is searched for an event with the same `seiscomp_oid`;
+    3. new event:      POST the event, then POST each magnitude. If a magnitude
+                       fails, the new event is deleted again, so the site never
+                       shows an event without magnitudes ("all or nothing");
+    4. existing event: PUT the event fields, then PUT (known type) or POST (new
+                       type) each magnitude. Magnitudes already on the site but
+                       not in `event` are kept. Every magnitude is tried, and
+                       the failed ones are reported together at the end.
+
+An event is a dict with these keys (only the first four are required):
+
+    seiscomp_oid   str, max 100   SeisComP event publicID, e.g. "ies2026ufhk"
+    origin_time    str            UTC, ISO format "YYYY-MM-DD HH:MM:SS"
+    latitude       float          -90 ... 90
+    longitude      float          -180 ... 180
+    magnitudes     dict           at least one, {site code: value}, e.g. {"ML": 3.4}
+    depth          float          km
+    location_ge    str, max 500
+    location_en    str, max 500
+    is_automatic   bool
+    iesdata_id     str, max 100
+    area           str, max 20
+
+Endpoints used (all with the X-API-Key header):
+
+    POST   /api/seismic_events/filter                    search by seiscomp_oid
+    POST   /api/seismic_events/                          create an event
+    PUT    /api/seismic_events/{id}                      update an event
+    DELETE /api/seismic_events/{id}                      rollback of a failed create
+    POST   /api/seismic_events/{id}/magnitudes           add a magnitude
+    PUT    /api/seismic_events/magnitudes/{magnitude_id} change a magnitude's value
+
+Settings come from `.env` (see `config.EventApiSettings`): Send_eq2api_API_URL,
+Send_eq2api_API_KEY and, only for a self-signed server certificate, Send_eq2api_API_CA.
+
+Manual, read-only lookup of an event on the site:
+    ./send_eq2api/send_eq2api.py ies2026ufhk
+"""
+
+import argparse
+import json
 import math
-import os
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -8,312 +55,223 @@ import requests
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from config import BASE_DIR, load_env_file  # noqa: E402
+from config import EventApiSettings, load_settings  # noqa: E402
 
-load_env_file()
+# Magnitude codes the site knows (its `magnitudes` table). An unknown code
+# would fail on the site, so it is rejected before anything is sent.
+SITE_MAGNITUDE_CODES = frozenset({"ML", "MB", "MS", "MD", "MW", "K", "MPV", "MLH", "MC", "MLV", "M"})
 
-# კონფიგურაცია: key და მისამართი env ცვლადებიდან იკითხება, კოდში არაფერი წერია
-BASE_URL = os.getenv("Send_eq2api_API_URL", "https://iesdata.iliauni.edu.ge:3030/").rstrip("/")
-API_KEY = os.getenv("Send_eq2api_API_KEY")
-TIMEOUT = float(os.getenv("Send_eq2api_API_TIMEOUT") or 20)  # წამი; ყველა HTTP მოთხოვნას აქვს timeout
-
-# სერტიფიკატი ჩვეულებრივი CA-ებით მოწმდება; Send_eq2api_API_CA საჭიროა მხოლოდ self-signed სერვერისთვის
-CA_FILE = os.getenv("Send_eq2api_API_CA")
-VERIFY = str(BASE_DIR / CA_FILE) if CA_FILE else True
-
-# ველები, რომლებიც აუცილებლად უნდა იყოს მითითებული
-REQUIRED = ("seiscomp_oid", "origin_time", "latitude", "longitude")
-
-# ტექსტური ველები და მათი მაქსიმალური სიგრძე
-MAX_LEN = {
+REQUIRED_FIELDS = ("seiscomp_oid", "origin_time", "latitude", "longitude")
+# Text fields and their maximum length on the site.
+TEXT_FIELDS = {
     "seiscomp_oid": 100,
     "iesdata_id": 100,
     "area": 20,
     "location_ge": 500,
     "location_en": 500,
 }
+# Any other key (e.g. a typo) is rejected instead of being silently ignored by the site.
+ALLOWED_FIELDS = frozenset({*REQUIRED_FIELDS, *TEXT_FIELDS, "depth", "magnitudes", "is_automatic"})
 
-# დასაშვები გასაღებების სრული სია; სხვა ნებისმიერი (მაგ. ბეჭდვის შეცდომა) უარყოფილია
-ALLOWED_KEYS = {*REQUIRED, *MAX_LEN, "depth", "magnitudes", "is_automatic"}
-
-# HTTP სტატუსები, რომლებზეც API-ის message-ის ნაცვლად ჩვენი ტექსტი ჩანს
+# Shown instead of the API's own message for these statuses.
 HTTP_ERRORS = {
     401: "API key არასწორია",
     403: "სერვისს არ აქვს can_event_edit უფლება",
 }
 
 
-class ApiError(RuntimeError):
-    """API-მ შეცდომა დააბრუნა ან მიუწვდომელია."""
+class EventApiError(RuntimeError):
+    """The API could not be reached or answered with an error."""
 
-    def __init__(self, message, status=None):
+    def __init__(self, message: str, status: int | None = None):
         super().__init__(message)
-        self.status = status  # HTTP სტატუსი (ქსელის შეცდომისას None)
+        self.status = status  # HTTP status; None for network errors
 
 
-def _request(method: str, path: str, payload: dict | None = None) -> dict:
-    """უგზავნის მოთხოვნას API-ს და აბრუნებს პასუხის JSON-ს; შეცდომაზე ApiError."""
-    if not API_KEY:
-        raise ApiError("API_KEY is not set.")
-
-    # ქსელის შეცდომა ან timeout -> ApiError
-    try:
-        response = requests.request(
-            method,
-            f"{BASE_URL}{path}",
-            json=payload,
-            headers={"X-API-Key": API_KEY},
-            timeout=TIMEOUT,
-            verify=VERIFY,
-        )
-    except requests.RequestException as exc:
-        raise ApiError(f"Could not reach API: {exc}") from exc
-
-    # პასუხი ყოველთვის JSON არ არის (მაგ. 500-ზე HTML), ამ შემთხვევაში ცარიელი dict
-    try:
-        data = response.json()
-    except ValueError:
-        data = {}
-
-    # წარუმატებელი სტატუსი: ჯერ ჩვენი ტექსტი (401/403), მერე API-ის message, მერე default
-    if not response.ok:
-        message = (
-            HTTP_ERRORS.get(response.status_code)
-            or (data.get("message") if isinstance(data, dict) else None)
-            or "Unknown API error"
-        )
-        raise ApiError(
-            f"{method} {path} failed with HTTP {response.status_code}: {message}",
-            response.status_code,
-        )
-    return data
-
-
-def _to_float(value, name):
-    """გადაჰყავს მნიშვნელობა float-ში; უარყოფს bool-ს, nan-ს და inf-ს."""
-    try:
-        result = float(value)
-    except (TypeError, ValueError):
-        raise ValueError(f"Invalid {name}: {value}") from None
-    # float(True) == 1.0, float("nan") და float("inf") შეცდომას არ იძლევა,
-    # მაგრამ მიწისძვრის მონაცემად არასწორია
-    if isinstance(value, bool) or not math.isfinite(result):
-        raise ValueError(f"Invalid {name}: {value}")
-    return result
-
-
-def _validate_event(event: dict) -> None:
-    """ამოწმებს event dict-ს; არასწორზე ValueError. შემავალ dict-ს არ ცვლის."""
+def validate_event(event: dict) -> None:
+    """Raise ValueError if `event` does not match the format in the module docstring."""
     if not isinstance(event, dict):
         raise ValueError("Event must be a dict.")
 
-    # უცნობი გასაღებები
-    unknown_keys = event.keys() - ALLOWED_KEYS
-    if unknown_keys:
-        raise ValueError(f"Unknown event key(s): {', '.join(sorted(unknown_keys))}")
+    unknown = event.keys() - ALLOWED_FIELDS
+    if unknown:
+        raise ValueError(f"Unknown event key(s): {', '.join(sorted(unknown))}")
 
-    # სავალდებულო ველები: უნდა არსებობდეს და არ იყოს None ან ცარიელი
-    for key in REQUIRED:
+    for key in REQUIRED_FIELDS:
         if event.get(key) is None or event.get(key) == "":
             raise ValueError(f"{key} is required.")
 
-    # ტექსტური ველები: თუ მითითებულია, უნდა იყოს სტრიქონი და არ აღემატებოდეს მაქს. სიგრძეს
-    # (not isinstance პირველია, რომ რიცხვზე len() არ გამოიძახოს)
-    for key, max_len in MAX_LEN.items():
+    for key, max_len in TEXT_FIELDS.items():
         value = event.get(key)
         if value is not None and (not isinstance(value, str) or len(value) > max_len):
             raise ValueError(f"{key} must be a string of at most {max_len} characters.")
 
-    # მაგნიტუდები: არაცარიელი dict, ყველა მნიშვნელობა რიცხვი
     magnitudes = event.get("magnitudes")
     if not isinstance(magnitudes, dict) or not magnitudes:
         raise ValueError("Event must have at least one magnitude.")
-
     for code, value in magnitudes.items():
+        if code not in SITE_MAGNITUDE_CODES:
+            raise ValueError(f"Unknown magnitude code {code!r}; the site knows {', '.join(sorted(SITE_MAGNITUDE_CODES))}.")
         _to_float(value, f"magnitude {code}")
 
-    # დრო: ISO ფორმატი (YYYY-MM-DD HH:MM:SS ან YYYY-MM-DDTHH:MM:SS)
     try:
         datetime.fromisoformat(event["origin_time"])
     except (TypeError, ValueError):
-        raise ValueError("Invalid origin_time.") from None
+        raise ValueError(f"Invalid origin_time: {event['origin_time']!r}") from None
 
-    # კოორდინატები: რიცხვი და დიაპაზონში (-limit ... limit)
     for key, limit in (("latitude", 90), ("longitude", 180)):
         if abs(_to_float(event[key], key)) > limit:
             raise ValueError(f"{key} must be between {-limit} and {limit}.")
 
-    # სიღრმე: არასავალდებულო, მაგრამ თუ არის, უნდა იყოს რიცხვი
     if event.get("depth") is not None:
         _to_float(event["depth"], "depth")
 
-    # is_automatic: თუ მითითებულია, უნდა იყოს bool (არა სტრიქონი "True")
     if not isinstance(event.get("is_automatic", False), bool):
         raise ValueError("is_automatic must be a bool.")
 
-def find_event_by_oid(seiscomp_oid) -> dict | None:
-    """ეძებს მიწისძვრას seiscomp_oid-ით; აბრუნებს მიწისძვრას ან None-ს."""
-    data = _request(
-        "POST",
-        "/api/seismic_events/filter",
-        {"seiscomp_oid": seiscomp_oid},
-    )
 
-    # API ნაწილობრივ დამთხვევასაც აბრუნებს ("abc" იპოვის "abc123"-საც),
-    # ამიტომ ვიღებთ მხოლოდ ზუსტ დამთხვევას
-    for item in data.get("items", []):
-        if item.get("seiscomp_oid") == seiscomp_oid:
-            return item
-
-    return None
+def _to_float(value, name: str) -> float:
+    """`value` as a finite float; bool, nan and inf are rejected."""
+    # float(True), float("nan") and float("inf") all succeed, but none is a valid measurement.
+    try:
+        result = float(value)
+    except (TypeError, ValueError):
+        raise ValueError(f"Invalid {name}: {value!r}") from None
+    if isinstance(value, bool) or not math.isfinite(result):
+        raise ValueError(f"Invalid {name}: {value!r}")
+    return result
 
 
-def add_event(event: dict) -> dict:
-    """ამატებს მიწისძვრას მაგნიტუდებით, ან განაახლებს, თუ seiscomp_oid უკვე არსებობს.
+class EventApiClient:
+    """Adds and updates events on the site. One instance can serve many events."""
 
-    აბრუნებს {"id": ..., "created": True/False}.
-    ValueError: არასწორი მონაცემები (API-ს არაფერი ეგზავნება).
-    ApiError: API-მ შეცდომა დააბრუნა ან მიუწვდომელია.
-    """
-    # 1. შემოწმება: არასწორზე ValueError და API-ს ჯერ არაფერი ეგზავნება
-    _validate_event(event)
+    def __init__(self, settings: EventApiSettings, session: requests.Session | None = None):
+        self.settings = settings
+        self._base_url = settings.base_url.rstrip("/")
+        self._session = session or requests.Session()
 
-    # 2. ორად გაყოფა (შემავალი dict არ იცვლება, ახალი dict-ები ვაგებთ):
-    #    მიწისძვრის payload: magnitudes-ის და None მნიშვნელობების გარეშე
-    event_payload = {
-        key: value
-        for key, value in event.items()
-        if key != "magnitudes" and value is not None
-    }
+    def add_event(self, event: dict) -> dict:
+        """Create `event` on the site, or update it if its seiscomp_oid is already there.
 
-    #    მაგნიტუდები ცალკე, მნიშვნელობები float-ად
-    magnitudes = {
-        code: _to_float(value, f"magnitude {code}")
-        for code, value in event["magnitudes"].items()
-    }
+        Returns {"id": site event id, "created": True if it was new}.
 
-    # 3. არსებობს თუ არა ეს მიწისძვრა უკვე
-    existing = find_event_by_oid(event["seiscomp_oid"])
+        Raises:
+            ValueError: `event` is invalid; nothing was sent.
+            EventApiError: the API failed; see the module docstring for what is left behind.
+        """
+        validate_event(event)
+        fields = {key: value for key, value in event.items() if key != "magnitudes" and value is not None}
+        magnitudes = {code: _to_float(value, code) for code, value in event["magnitudes"].items()}
 
-    # 4ა. ახალი მიწისძვრა: შექმნა + მაგნიტუდები, "ყველაფერი ან არაფერი"
-    if existing is None:
-        data = _request(
-            "POST",
-            "/api/seismic_events/",
-            event_payload,
-        )
-        event_id = data["event"]["id"]
+        existing = self.find_event(event["seiscomp_oid"])
+        if existing is None:
+            return {"id": self._create(fields, magnitudes), "created": True}
+        self._update(existing, fields, magnitudes)
+        return {"id": existing["id"], "created": False}
 
-        try:
-            for code, value in magnitudes.items():
-                _request(
-                    "POST",
-                    f"/api/seismic_events/{event_id}/magnitudes",
-                    {
-                        "magnitude_code": code,
-                        "value": value,
-                    },
-                )
+    def find_event(self, seiscomp_oid: str) -> dict | None:
+        """The site's event with exactly this seiscomp_oid, or None."""
+        data = self._request("POST", "/api/seismic_events/filter", {"seiscomp_oid": seiscomp_oid})
+        # The filter also matches substrings ("abc" finds "abc123"), so only an exact match counts.
+        for item in data.get("items", []):
+            if item.get("seiscomp_oid") == seiscomp_oid:
+                return item
+        return None
 
-        except ApiError as exc:
-            # რომელიმე მაგნიტუდა ვერ დაემატა -> rollback:
-            # შექმნილ მიწისძვრას ვშლით, რომ საიტზე მაგნიტუდის გარეშე არ დარჩეს
-            # (code აქ ის მაგნიტუდაა, რომელზეც ციკლი გაჩერდა)
+    def _create(self, fields: dict, magnitudes: dict[str, float]) -> int:
+        event_id = self._request("POST", "/api/seismic_events/", fields)["event"]["id"]
+        for code, value in magnitudes.items():
             try:
-                _request(
-                    "DELETE",
-                    f"/api/seismic_events/{event_id}",
-                )
-            except ApiError as delete_exc:
-                # წაშლაც ვერ მოხერხდა: მომხმარებელმა უნდა იცოდეს, რომ ხელით უნდა წაშალოს
-                raise ApiError(
-                    f"Event was not added: magnitude {code} failed: {exc}; "
-                    f"rollback failed: {delete_exc}. "
-                    f"Earthquake #{event_id} was left without magnitude "
-                    f"and must be deleted manually."
-                ) from delete_exc
+                self._add_magnitude(event_id, code, value)
+            except EventApiError as exc:
+                self._rollback(event_id, f"magnitude {code} failed: {exc}")
+        return event_id
 
-            # rollback წარმატებულია, მაინც ვაგდებთ შეცდომას
-            raise ApiError(
-                f"Event was not added: magnitude {code} failed: {exc}"
-            ) from exc
+    def _rollback(self, event_id: int, reason: str) -> None:
+        """Delete a half-created event, then raise EventApiError explaining why."""
+        try:
+            self._request("DELETE", f"/api/seismic_events/{event_id}")
+        except EventApiError as delete_exc:
+            raise EventApiError(
+                f"Event was not added: {reason}; rollback failed: {delete_exc}. "
+                f"Event #{event_id} was left without magnitudes and must be deleted manually."
+            ) from delete_exc
+        raise EventApiError(f"Event was not added: {reason}")
 
-        return {"id": event_id, "created": True}
-
-    # 4ბ. არსებული მიწისძვრა: განახლება
-    else:
+    def _update(self, existing: dict, fields: dict, magnitudes: dict[str, float]) -> None:
         event_id = existing["id"]
+        self._request("PUT", f"/api/seismic_events/{event_id}", fields)
 
-        _request(
-            "PUT",
-            f"/api/seismic_events/{event_id}",
-            event_payload,
-        )
-
-        # არსებული მაგნიტუდები: კოდი (დიდი ასოებით) -> ჩანაწერი.
-        # ჩანაწერის id გვჭირდება PUT-ისთვის, კოდი კი რეგისტრის გარეშე შესადარებლად
-        existing_magnitudes = existing.get("magnitudes", [])
-        existing_by_code = {
-            item["magnitude"]["code"].upper(): item
-            for item in existing_magnitudes
-        }
-
-        # თითო მაგნიტუდას ცალ-ცალკე ვცდით, რომ ერთის ჩავარდნამ დანარჩენები არ შეაჩეროს;
-        # ჩავარდნილებს ვაგროვებთ და ბოლოს ერთად ვაცხადებთ.
-        # საიტზე არსებულ მაგნიტუდებს, რომლებიც ახალ dict-ში არ არის, არ ვშლით
+        # Site magnitude records by code; the record id is needed to change a value.
+        on_site = {item["magnitude"]["code"].upper(): item for item in existing.get("magnitudes", [])}
         failed = []
         for code, value in magnitudes.items():
-            existing_magnitude = existing_by_code.get(code.upper())
-
             try:
-                if existing_magnitude:
-                    # ეს ტიპი უკვე აქვს -> მნიშვნელობას ვანახლებთ
-                    _request(
-                        "PUT",
-                        f"/api/seismic_events/magnitudes/{existing_magnitude['id']}",
-                        {"value": value},
+                if code.upper() in on_site:
+                    self._request(
+                        "PUT", f"/api/seismic_events/magnitudes/{on_site[code.upper()]['id']}", {"value": value},
                     )
                 else:
-                    # ეს ტიპი ჯერ არ აქვს -> ვამატებთ
-                    _request(
-                        "POST",
-                        f"/api/seismic_events/{event_id}/magnitudes",
-                        {
-                            "magnitude_code": code,
-                            "value": value,
-                        },
-                    )
-            except ApiError as exc:
+                    self._add_magnitude(event_id, code, value)
+            except EventApiError as exc:
                 failed.append(f"{code}: {exc}")
-
-        # განახლებისას rollback არ არის (მიწისძვრა უკვე არსებობდა), მხოლოდ ვაცხადებთ, რა ჩავარდა
+        # The event existed before, so there is nothing to roll back; report what failed.
         if failed:
-            raise ApiError(
-                f"Event #{event_id} magnitude update failed: {'; '.join(failed)}"
-            )
+            raise EventApiError(f"Event #{event_id} magnitude update failed: {'; '.join(failed)}")
 
-        return {"id": event_id, "created": False}
+    def _add_magnitude(self, event_id: int, code: str, value: float) -> None:
+        self._request(
+            "POST", f"/api/seismic_events/{event_id}/magnitudes", {"magnitude_code": code, "value": value},
+        )
+
+    def _request(self, method: str, path: str, payload: dict | None = None) -> dict:
+        """Send one request and return the JSON response (an empty dict if it is not JSON)."""
+        if not self.settings.api_key:
+            raise EventApiError("Send_eq2api_API_KEY is not set")
+        try:
+            response = self._session.request(
+                method,
+                f"{self._base_url}{path}",
+                json=payload,
+                headers={"X-API-Key": self.settings.api_key},
+                timeout=self.settings.timeout_s,
+                verify=str(self.settings.ca_file) if self.settings.ca_file else True,
+            )
+        except requests.RequestException as exc:
+            raise EventApiError(f"Could not reach API: {exc}") from exc
+
+        try:
+            data = response.json()
+        except ValueError:  # e.g. an HTML error page
+            data = {}
+        if not isinstance(data, dict):
+            data = {}
+
+        if not response.ok:
+            message = HTTP_ERRORS.get(response.status_code) or data.get("message") or "Unknown API error"
+            raise EventApiError(
+                f"{method} {path} failed with HTTP {response.status_code}: {message}", response.status_code,
+            )
+        return data
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Show an event as stored on the iesdata site (read-only).")
+    parser.add_argument("seiscomp_oid", help="SeisComP event publicID, e.g. ies2026ufhk")
+    args = parser.parse_args(argv)
+
+    client = EventApiClient(load_settings().event_api)
+    try:
+        event = client.find_event(args.seiscomp_oid)
+    except EventApiError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+    if event is None:
+        print(f"{args.seiscomp_oid} is not on the site.")
+        return 1
+    print(json.dumps(event, ensure_ascii=False, indent=2))
+    return 0
 
 
 if __name__ == "__main__":
-    # ხელით ტესტი: გაეშვება მხოლოდ პირდაპირ გაშვებისას (python3 post_event.py), import-ზე არა
-    test_event = {
-        "iesdata_id": None,
-        "seiscomp_oid": "ies2026demo1",
-        "origin_time": "2026-09-30 14:25:10",
-        "latitude": 41.72,
-        "longitude": 44.79,
-        "depth": 12,
-        "magnitudes": {"ML": 3.4, "MW": 3.2},
-        "location_ge": "თბილისიდან 15 კმ ჩრდილო-აღმოსავლეთით",
-        "location_en": "15 km NE of Tbilisi",
-        "is_automatic": False,
-        "area": "local",
-    }
-
-    try:
-        result = add_event(test_event)
-        print("Event:", result["id"], "created" if result["created"] else "updated")
-
-    except (ApiError, ValueError) as exc:
-        print(f"Error: {exc}")
+    sys.exit(main())

@@ -323,6 +323,30 @@ Log:
 | `SMS FAILED` | no provider could send to some numbers (the numbers are listed) |
 | `SMS BALANCE LOW` | few SMS left on smsoffice |
 
+### Adding to the site: `send_eq2api/`
+
+Only publishable events (the notification goes to everyone) are added to the
+iesdata site; if the site already has the same `seiscomp_oid`, it is updated.
+
+| File | What it does |
+|------|--------------|
+| `event_sender.py` | `send_event_api(...)` — SeisComP event in the site's format (magnitude codes, rounding), with logging |
+| `send_eq2api.py` | `EventApiClient` — validation, create / update, deleting a half-created event |
+
+- magnitude types match the site codes case-insensitively (`MLv` → `MLV`); `Ms_20` → `MS`;
+  `mB` and types the site does not know (e.g. `Mwp`) are not sent;
+- rounding: magnitude 3 decimals, coordinates 5, depth 3;
+- if a magnitude of a new event fails, the event is deleted again (all or nothing);
+- manual check (read-only): `./send_eq2api/send_eq2api.py ies2026ufhk`.
+
+| Entry | Meaning |
+|-------|---------|
+| `API SENDING` | the data being sent |
+| `API CREATED` / `API UPDATED` | added to / updated on the site, with `site_id` |
+| `API ... not sent: ...` | magnitude types unknown to the site, skipped |
+| `API NOT SENT` | no magnitude the site knows |
+| `API FAILED` | API error, with traceback |
+
 ## 8. Reading the log
 
 File: `logs/event_scalert.log`. Line format: `time LEVEL KEYWORD event_id=... ...`
@@ -336,6 +360,7 @@ File: `logs/event_scalert.log`. Line format: `time LEVEL KEYWORD event_id=... ..
 | `SKIPPED` | not processed (fake event, or no magnitude yet) |
 | `MAIL ...` | email recipients and sending result |
 | `SMS ...` | SMS numbers, providers and sending result |
+| `API ...` | result of adding the event to the site |
 | `FAILED` | error, with traceback |
 
 Example:
@@ -483,6 +508,9 @@ scalert_event/
 │   ├── mailer.py             SMTP
 │   ├── ies_mail_sender.py    send_event_mail
 │   └── ies_sms_sender.py     send_event_sms, SmsSender (magti → smsoffice → gsm)
+├── send_eq2api/
+│   ├── event_sender.py       send_event_api (SeisComP → site format)
+│   └── send_eq2api.py        EventApiClient (iesdata API)
 ├── logs/                     event_scalert.log, update_recipients.log
 └── tests/
 ```
