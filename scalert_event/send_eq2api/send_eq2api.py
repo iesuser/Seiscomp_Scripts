@@ -34,7 +34,7 @@ An event is a dict with these keys (only the first four are required):
 
 Endpoints used (all with the X-API-Key header):
 
-    POST   /api/seismic_events/filter                    search by seiscomp_oid
+    GET    /api/seismic_events/seiscomp_oid/{oid}        lookup by seiscomp_oid
     POST   /api/seismic_events/                          create an event
     PUT    /api/seismic_events/{id}                      update an event
     DELETE /api/seismic_events/{id}                      rollback of a failed create
@@ -59,6 +59,7 @@ import math
 import sys
 from datetime import datetime
 from pathlib import Path
+from urllib.parse import quote
 
 import requests
 
@@ -204,12 +205,15 @@ class EventApiClient:
 
     def find_event(self, seiscomp_oid: str) -> dict | None:
         """The site's event with exactly this seiscomp_oid, or None."""
-        data = self._request("POST", "/api/seismic_events/filter", {"seiscomp_oid": seiscomp_oid})
-        # The filter also matches substrings ("abc" finds "abc123"), so only an exact match counts.
-        for item in data.get("items", []):
-            if item.get("seiscomp_oid") == seiscomp_oid:
-                return item
-        return None
+        path = f"/api/seismic_events/seiscomp_oid/{quote(seiscomp_oid, safe='')}"
+        try:
+            data = self._request("GET", path)
+        except EventApiError as exc:
+            if exc.status == 404:
+                return None
+            raise
+        event = data.get("event") if isinstance(data.get("event"), dict) else data
+        return event if event.get("id") is not None else None
 
     def _create(self, fields: dict, magnitudes: dict[str, float]) -> int:
         event_id = self._request("POST", "/api/seismic_events/", fields)["event"]["id"]

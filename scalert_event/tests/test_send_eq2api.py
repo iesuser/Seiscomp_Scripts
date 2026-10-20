@@ -62,7 +62,8 @@ def client(routes=None):
     return EventApiClient(SETTINGS, session=session), session
 
 
-NOT_FOUND = {("POST", "/api/seismic_events/filter"): FakeResponse(200, {"items": [{"seiscomp_oid": "ies10", "id": 9}]})}
+LOOKUP = "/api/seismic_events/seiscomp_oid/ies1"
+NOT_FOUND = {("GET", LOOKUP): FakeResponse(404, {"error": "not_found", "message": "Not found"})}
 CREATED = {("POST", "/api/seismic_events/"): FakeResponse(201, {"event": {"id": 7}})}
 
 
@@ -70,7 +71,7 @@ def test_new_event_is_created_with_its_magnitudes():
     api, session = client({**NOT_FOUND, **CREATED})
     assert api.add_event(EVENT) == {"id": 7, "created": True, "is_published": False}
     assert [(m, p) for m, p, _ in session.calls] == [
-        ("POST", "/api/seismic_events/filter"),
+        ("GET", LOOKUP),
         ("POST", "/api/seismic_events/"),
         ("POST", "/api/seismic_events/7/magnitudes"),
         ("POST", "/api/seismic_events/7/magnitudes"),
@@ -101,7 +102,7 @@ def test_failed_rollback_says_the_event_must_be_deleted_manually():
 
 def test_existing_event_is_updated_and_new_magnitude_added():
     existing = {"seiscomp_oid": "ies1", "id": 3, "magnitudes": [{"id": 30, "magnitude": {"code": "ml"}}]}
-    api, session = client({("POST", "/api/seismic_events/filter"): FakeResponse(200, {"items": [existing]})})
+    api, session = client({("GET", LOOKUP): FakeResponse(200, existing)})
     assert api.add_event(EVENT) == {"id": 3, "created": False, "is_published": False}
     assert [(m, p, j) for m, p, j in session.calls[1:] if p != "/api/seismic_events/3"] == [
         ("PUT", "/api/seismic_events/magnitudes/30", {"value": 1.943}),
@@ -112,7 +113,7 @@ def test_existing_event_is_updated_and_new_magnitude_added():
 def test_update_tries_every_magnitude_and_reports_the_failed_ones():
     existing = {"seiscomp_oid": "ies1", "id": 3, "magnitudes": []}
     api, session = client({
-        ("POST", "/api/seismic_events/filter"): FakeResponse(200, {"items": [existing]}),
+        ("GET", LOOKUP): FakeResponse(200, existing),
         ("POST", "/api/seismic_events/3/magnitudes"): FakeResponse(400, {"message": "nope"}),
     })
     with pytest.raises(EventApiError, match="#3 magnitude update failed: ML: .*; M: "):
@@ -121,14 +122,14 @@ def test_update_tries_every_magnitude_and_reports_the_failed_ones():
 
 
 def test_http_errors_use_our_text_for_401():
-    api, _ = client({("POST", "/api/seismic_events/filter"): FakeResponse(401, {"message": "Unauthorized"})})
+    api, _ = client({("GET", LOOKUP): FakeResponse(401, {"message": "Unauthorized"})})
     with pytest.raises(EventApiError, match="API key არასწორია") as exc:
         api.find_event("ies1")
     assert exc.value.status == 401
 
 
 def test_network_error_becomes_event_api_error():
-    api, _ = client({("POST", "/api/seismic_events/filter"): requests.ConnectionError("refused")})
+    api, _ = client({("GET", LOOKUP): requests.ConnectionError("refused")})
     with pytest.raises(EventApiError, match="Could not reach API") as exc:
         api.find_event("ies1")
     assert exc.value.status is None
@@ -215,7 +216,7 @@ def test_staff_only_event_is_added_but_not_published(make_assessment):
 
 def found(is_published):
     item = {"seiscomp_oid": "ies1", "id": 3, "magnitudes": [], "is_published": is_published}
-    return {("POST", "/api/seismic_events/filter"): FakeResponse(200, {"items": [item]})}
+    return {("GET", LOOKUP): FakeResponse(200, item)}
 
 
 def wordpress_calls(session):
