@@ -406,7 +406,7 @@ When a new magnitude is added on the site, it must also be added to
 
 | Request | Purpose | Key |
 |---------|---------|-----|
-| `POST /api/seismic_events/filter` | find by `seiscomp_oid` | edit |
+| `GET /api/seismic_events/seiscomp_oid/{oid}` | find by `seiscomp_oid` | edit |
 | `POST /api/seismic_events/` | create | edit |
 | `PUT /api/seismic_events/{id}` | update | edit |
 | `DELETE /api/seismic_events/{id}` | delete a failed create | edit |
