@@ -62,8 +62,8 @@ def client(routes=None):
     return EventApiClient(SETTINGS, session=session), session
 
 
-LOOKUP = "/api/seismic_events/seiscomp_oid/ies1"
-NOT_FOUND = {("GET", LOOKUP): FakeResponse(404, {"error": "not_found", "message": "Not found"})}
+LOOKUP = "/api/seismic_events/seiscomp_oid=ies1"
+NOT_FOUND = {("GET", LOOKUP): FakeResponse(404, {"error": "not_found", "message": "Seismic event not found."})}
 CREATED = {("POST", "/api/seismic_events/"): FakeResponse(201, {"event": {"id": 7}})}
 
 
@@ -87,14 +87,14 @@ def test_failed_magnitude_rolls_back_the_new_event():
     })
     with pytest.raises(EventApiError, match="Event was not added: magnitude ML failed.*bad magnitude"):
         api.add_event(EVENT)
-    assert session.calls[-1][:2] == ("DELETE", "/api/seismic_events/7")
+    assert session.calls[-1][:2] == ("DELETE", "/api/seismic_events/event_id=7")
 
 
 def test_failed_rollback_says_the_event_must_be_deleted_manually():
     api, _ = client({
         **NOT_FOUND, **CREATED,
         ("POST", "/api/seismic_events/7/magnitudes"): FakeResponse(500),
-        ("DELETE", "/api/seismic_events/7"): FakeResponse(500),
+        ("DELETE", "/api/seismic_events/event_id=7"): FakeResponse(500),
     })
     with pytest.raises(EventApiError, match="#7 was left without magnitudes"):
         api.add_event(EVENT)
@@ -104,7 +104,8 @@ def test_existing_event_is_updated_and_new_magnitude_added():
     existing = {"seiscomp_oid": "ies1", "id": 3, "magnitudes": [{"id": 30, "magnitude": {"code": "ml"}}]}
     api, session = client({("GET", LOOKUP): FakeResponse(200, existing)})
     assert api.add_event(EVENT) == {"id": 3, "created": False, "is_published": False}
-    assert [(m, p, j) for m, p, j in session.calls[1:] if p != "/api/seismic_events/3"] == [
+    assert session.calls[1][:2] == ("PUT", "/api/seismic_events/event_id=3")
+    assert [(m, p, j) for m, p, j in session.calls[2:]] == [
         ("PUT", "/api/seismic_events/magnitudes/30", {"value": 1.943}),
         ("POST", "/api/seismic_events/3/magnitudes", {"magnitude_code": "M", "value": 2.759}),
     ]
@@ -119,6 +120,21 @@ def test_update_tries_every_magnitude_and_reports_the_failed_ones():
     with pytest.raises(EventApiError, match="#3 magnitude update failed: ML: .*; M: "):
         api.add_event(EVENT)
     assert not any(method == "DELETE" for method, _, _ in session.calls)
+
+
+def test_unknown_route_404_is_an_error_not_a_missing_event():
+    api, session = client({
+        ("GET", LOOKUP): FakeResponse(404, {"error": "not_found", "message": "The requested API URL was not found."}),
+    })
+    with pytest.raises(EventApiError, match="HTTP 404"):
+        api.add_event(EVENT)
+    assert [m for m, _, _ in session.calls] == ["GET"]
+
+
+def test_lookup_keeps_slash_in_seiscomp_oid():
+    api, session = client()
+    api.find_event("Origin/2026 x")
+    assert session.calls[0][1] == "/api/seismic_events/seiscomp_oid=Origin/2026%20x"
 
 
 def test_http_errors_use_our_text_for_401():

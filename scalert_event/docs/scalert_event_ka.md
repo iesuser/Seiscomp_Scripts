@@ -406,10 +406,10 @@ SeisComP-ში მაგნიტუდები `{"ML": 3.512, "MLv": 3.43, "m
 
 | მოთხოვნა | დანიშნულება | გასაღები |
 |----------|-------------|----------|
-| `GET /api/seismic_events/seiscomp_oid/{oid}` | ძებნა `seiscomp_oid`-ით | edit |
+| `GET /api/seismic_events/seiscomp_oid={oid}` | ძებნა `seiscomp_oid`-ით | edit |
 | `POST /api/seismic_events/` | შექმნა | edit |
-| `PUT /api/seismic_events/{id}` | განახლება | edit |
-| `DELETE /api/seismic_events/{id}` | ჩავარდნილი შექმნის წაშლა | edit |
+| `PUT /api/seismic_events/event_id={id}` | განახლება | edit |
+| `DELETE /api/seismic_events/event_id={id}` | ჩავარდნილი შექმნის წაშლა | edit |
 | `POST /api/seismic_events/{id}/magnitudes` | მაგნიტუდის დამატება | edit |
 | `PUT /api/seismic_events/magnitudes/{id}` | მაგნიტუდის შეცვლა | edit |
 | `POST /api/publish_events/publish/{id}` | WordPress-ზე გამოქვეყნება ან განახლება | publisher |
