@@ -34,10 +34,10 @@ An event is a dict with these keys (only the first four are required):
 
 Endpoints used (all with the X-API-Key header):
 
-    GET    /api/seismic_events/seiscomp_oid/{oid}        lookup by seiscomp_oid
+    GET    /api/seismic_events/seiscomp_oid={oid}        lookup by seiscomp_oid (exact match)
     POST   /api/seismic_events/                          create an event
-    PUT    /api/seismic_events/{id}                      update an event
-    DELETE /api/seismic_events/{id}                      rollback of a failed create
+    PUT    /api/seismic_events/event_id={id}             update an event
+    DELETE /api/seismic_events/event_id={id}             rollback of a failed create
     POST   /api/seismic_events/{id}/magnitudes           add a magnitude
     PUT    /api/seismic_events/magnitudes/{magnitude_id} change a magnitude's value
     POST   /api/publish_events/publish/{id}              publish (or update) on WordPress
@@ -88,6 +88,8 @@ HTTP_ERRORS = {
     401: "API key არასწორია",
     403: "სერვისს არ აქვს საჭირო უფლება",
 }
+# The API's 404 message for a missing event, as opposed to an unknown route.
+EVENT_NOT_FOUND = "Seismic event not found"
 
 
 class EventApiError(RuntimeError):
@@ -205,11 +207,13 @@ class EventApiClient:
 
     def find_event(self, seiscomp_oid: str) -> dict | None:
         """The site's event with exactly this seiscomp_oid, or None."""
-        path = f"/api/seismic_events/seiscomp_oid/{quote(seiscomp_oid, safe='')}"
+        path = f"/api/seismic_events/seiscomp_oid={quote(seiscomp_oid, safe='/')}"
         try:
             data = self._request("GET", path)
         except EventApiError as exc:
-            if exc.status == 404:
+            # A wrong route is also a 404 ("The requested API URL was not found."); treating it as
+            # "not on the site" would create a duplicate event on every recalculation.
+            if exc.status == 404 and EVENT_NOT_FOUND in str(exc):
                 return None
             raise
         event = data.get("event") if isinstance(data.get("event"), dict) else data
@@ -227,7 +231,7 @@ class EventApiClient:
     def _rollback(self, event_id: int, reason: str) -> None:
         """Delete a half-created event, then raise EventApiError explaining why."""
         try:
-            self._request("DELETE", f"/api/seismic_events/{event_id}")
+            self._request("DELETE", f"/api/seismic_events/event_id={event_id}")
         except EventApiError as delete_exc:
             raise EventApiError(
                 f"Event was not added: {reason}; rollback failed: {delete_exc}. "
@@ -237,7 +241,7 @@ class EventApiClient:
 
     def _update(self, existing: dict, fields: dict, magnitudes: dict[str, float]) -> None:
         event_id = existing["id"]
-        self._request("PUT", f"/api/seismic_events/{event_id}", fields)
+        self._request("PUT", f"/api/seismic_events/event_id={event_id}", fields)
 
         # Site magnitude records by code; the record id is needed to change a value.
         on_site = {item["magnitude"]["code"].upper(): item for item in existing.get("magnitudes", [])}

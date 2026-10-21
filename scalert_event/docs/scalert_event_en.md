@@ -406,10 +406,10 @@ When a new magnitude is added on the site, it must also be added to
 
 | Request | Purpose | Key |
 |---------|---------|-----|
-| `GET /api/seismic_events/seiscomp_oid/{oid}` | find by `seiscomp_oid` | edit |
+| `GET /api/seismic_events/seiscomp_oid={oid}` | find by `seiscomp_oid` | edit |
 | `POST /api/seismic_events/` | create | edit |
-| `PUT /api/seismic_events/{id}` | update | edit |
-| `DELETE /api/seismic_events/{id}` | delete a failed create | edit |
+| `PUT /api/seismic_events/event_id={id}` | update | edit |
+| `DELETE /api/seismic_events/event_id={id}` | delete a failed create | edit |
 | `POST /api/seismic_events/{id}/magnitudes` | add a magnitude | edit |
 | `PUT /api/seismic_events/magnitudes/{id}` | change a magnitude | edit |
 | `POST /api/publish_events/publish/{id}` | publish or update on WordPress | publisher |
