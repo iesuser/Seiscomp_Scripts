@@ -152,6 +152,8 @@ def process(event_id: str, settings: Settings, *, dry_run: bool) -> None:
     if settings.send_sms:
         channels.append(("SMS", lambda: send_event_sms(
             result,
+            latitude=event.latitude,
+            longitude=event.longitude,
             sender=SmsSender(settings.sms),
             recipients_file=settings.sms_recipients_file,
             context=context,

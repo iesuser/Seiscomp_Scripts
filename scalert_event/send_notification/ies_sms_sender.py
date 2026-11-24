@@ -219,6 +219,8 @@ class SmsSender:
 def send_event_sms(
     assessment: EventAssessment,
     *,
+    latitude: float,
+    longitude: float,
     sender: SmsSender,
     recipients_file: Path,
     context: str = "",
@@ -237,7 +239,7 @@ def send_event_sms(
         logger.warning("SMS NOT SENT %s audience=%s: no active phone numbers", context, assessment.audience)
         return False
 
-    text = build_sms_text(assessment)
+    text = build_sms_text(assessment, latitude, longitude)
     logger.info(
         "SMS SENDING %s audience=%s count=%d numbers=%s length=%d text=%r",
         context, assessment.audience, len(numbers), ", ".join(numbers), len(text), text,

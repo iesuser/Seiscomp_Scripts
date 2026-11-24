@@ -47,13 +47,19 @@ def build_body(assessment: EventAssessment, latitude: float, longitude: float) -
     return "\n".join(lines)
 
 
-def build_sms_text(assessment: EventAssessment) -> str:
-    """The first lines of the email body, as in the historic SMS alerts.
+def build_sms_text(assessment: EventAssessment, latitude: float, longitude: float) -> str:
+    """Build the SMS alert with the event location and map links.
 
-        STAFF ONLY.
+        [STAFF ONLY.\n]
         Automatic: <local time>. mag=<value><type>. <location>
+        https://www.google.com/maps/place/<rounded latitude>,<rounded longitude>
+        Shakemap: <link>
     """
-    text = f"{_summary(assessment)}. {assessment.location_ge}"
+    text = (
+        f"{_summary(assessment)}. {assessment.location_ge}\n"
+        f"https://www.google.com/maps/place/{round(latitude, 2)},{round(longitude, 2)}\n"
+        f"{SHAKEMAP_LINK}"
+    )
     if assessment.audience is Audience.STAFF:
         text = "STAFF ONLY.\n" + text
     return text

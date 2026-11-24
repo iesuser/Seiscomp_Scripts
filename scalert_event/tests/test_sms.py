@@ -80,10 +80,12 @@ def test_staff_gets_only_active_staff_numbers(numbers_file):
 
 
 def test_sms_text(make_assessment):
-    assert build_sms_text(make_assessment(Audience.ALL)) == (
-        "Automatic: 2026-10-07 09:15:03. mag=3.2ML. საქართველო. ქალაქი გორი:5კმ."
+    assert build_sms_text(make_assessment(Audience.ALL), 41.98, 44.11) == (
+        "Automatic: 2026-10-07 09:15:03. mag=3.2ML. საქართველო. ქალაქი გორი:5კმ.\n"
+        "https://www.google.com/maps/place/41.98,44.11\n"
+        "Shakemap: https://shorturl.at/ibvtX"
     )
-    assert build_sms_text(make_assessment(Audience.STAFF)).startswith("STAFF ONLY.\nAutomatic: ")
+    assert build_sms_text(make_assessment(Audience.STAFF), 41.98, 44.11).startswith("STAFF ONLY.\nAutomatic: ")
 
 
 def test_magti_delivers_everything(sms_settings):
@@ -155,7 +157,8 @@ class FakeSender:
 
 def test_send_event_sms_to_staff(numbers_file, make_assessment):
     sender = FakeSender()
-    assert send_event_sms(make_assessment(Audience.STAFF), sender=sender, recipients_file=numbers_file)
+    assert send_event_sms(make_assessment(Audience.STAFF), latitude=41.98, longitude=44.11,
+                          sender=sender, recipients_file=numbers_file)
     message, numbers = sender.calls[0]
     assert numbers == ["995555111111"]
     assert message.startswith("STAFF ONLY.\n")
@@ -163,11 +166,13 @@ def test_send_event_sms_to_staff(numbers_file, make_assessment):
 
 def test_send_event_sms_dry_run(numbers_file, make_assessment):
     sender = FakeSender()
-    assert not send_event_sms(make_assessment(), sender=sender, recipients_file=numbers_file, dry_run=True)
+    assert not send_event_sms(make_assessment(), latitude=41.98, longitude=44.11,
+                              sender=sender, recipients_file=numbers_file, dry_run=True)
     assert sender.calls == []
 
 
 def test_send_event_sms_reports_failed_numbers(numbers_file, make_assessment, caplog):
     sender = FakeSender(failed=["995555222222"])
-    assert not send_event_sms(make_assessment(), sender=sender, recipients_file=numbers_file)
+    assert not send_event_sms(make_assessment(), latitude=41.98, longitude=44.11,
+                              sender=sender, recipients_file=numbers_file)
     assert "SMS FAILED" in caplog.text and "995555222222" in caplog.text

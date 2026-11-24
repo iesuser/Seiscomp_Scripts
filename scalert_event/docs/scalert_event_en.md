@@ -291,11 +291,13 @@ https://ies.iliauni.edu.ge/?page_id=121
 
 ### 7.2 SMS
 
-The text is the first lines of the email, as in the old system:
+The text includes the event summary, a Google Maps link (coordinates rounded to two decimals), and the Shakemap link:
 
 ```
 STAFF ONLY.
 Automatic: 2026-09-16 22:20:17. mag=2.92M. საქართველო. თბილისიდან 61კმ. ქალაქი დმანისი, დასავლეთით:21კმ. სოფელი მამიშლარი:5კმ.
+https://www.google.com/maps/place/41.98,44.11
+Shakemap: https://shorturl.at/ibvtX
 ```
 
 Numbers are normalised to `995XXXXXXXXX` (`+995 555 12-34-56` and `555123456` are both
